@@ -4,110 +4,281 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Life RPG</title>
-
-  <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
     body { font-family: 'Plus Jakarta Sans', sans-serif; -webkit-tap-highlight-color: transparent; }
   </style>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
 <body class="bg-neutral-100 text-neutral-900 antialiased">
-  
-  <div id="app" class="max-w-md mx-auto min-h-screen bg-[#f4f4f6] pb-24 shadow-2xl relative">
-    
-    <!-- Header TopBar -->
-    <header class="p-5 bg-white border-b border-neutral-200 flex justify-between items-center sticky top-0 z-40">
-      <div class="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-full bg-[#f94a29] flex items-center justify-center text-white font-bold text-lg p-2 bg-[#f94a29] rounded-full text-white">
-          🎯
-        </div>
-        <div>
-          <p class="text-[10px] font-extrabold uppercase tracking-wider text-neutral-400">Jugador</p>
-          <h1 class="text-base font-black text-neutral-900">Ángel</h1>
-        </div>
-      </div>
+  <div id="root"></div>
 
-      <div class="flex items-center gap-2">
-        <div class="flex items-center gap-1 bg-amber-50 px-3 py-1.5 rounded-full border border-amber-200">
-          <span id="coins-display" class="text-xs font-black text-amber-700">🪙 50</span>
-        </div>
-        <div class="flex items-center gap-1 bg-rose-50 px-3 py-1.5 rounded-full border border-rose-200">
-          <span class="text-xs font-black text-rose-600">❤️ 100 HP</span>
-        </div>
-      </div>
-    </header>
+  <script type="text/babel">
+    const { useState, useEffect, useMemo, useRef } = React;
 
-    <!-- Content -->
-    <main class="p-5 space-y-5">
-      <!-- Nivel Card -->
-      <div class="p-5 bg-neutral-900 text-white rounded-3xl shadow-xl space-y-3">
-        <div class="flex justify-between items-center">
-          <span class="text-xs font-bold text-orange-400 uppercase tracking-wider">Progreso</span>
-          <span class="text-xl font-black">NIVEL 1</span>
-        </div>
-        <div class="w-full bg-neutral-800 rounded-full h-2.5 overflow-hidden">
-          <div id="xp-bar" class="bg-[#f94a29] h-full transition-all duration-500" style="width: 25%;"></div>
-        </div>
-        <p class="text-[11px] text-neutral-400 text-right font-medium"><span id="xp-display">25</span> / 100 XP para Nivel 2</p>
-      </div>
+    const roundToNearest10 = (num) => Math.round(num / 10) * 10;
+    const thresholdForLevel = (level) => level <= 1 ? 0 : roundToNearest10(205 * Math.pow(level - 1, 1.77));
 
-      <!-- Hábitos -->
-      <div class="space-y-3">
-        <h2 class="text-xs font-extrabold uppercase tracking-wider text-neutral-400">Hábitos Diarios</h2>
-        
-        <div class="p-4 bg-white rounded-3xl border border-neutral-200 shadow-sm flex items-center justify-between">
-          <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-2xl bg-neutral-100 flex items-center justify-center text-xl">🏋️</div>
-            <div>
-              <h3 class="text-sm font-bold text-neutral-900">Ejercicio 20m</h3>
-              <p class="text-xs text-[#f94a29] font-bold">+25 XP • +12 Monedas</p>
+    const calculateLevelState = (lifetimeXP) => {
+      let level = 1;
+      while (thresholdForLevel(level + 1) <= lifetimeXP) level++;
+      const currentThreshold = thresholdForLevel(level);
+      const nextThreshold = thresholdForLevel(level + 1);
+      const xpIntoCurrentLevel = lifetimeXP - currentThreshold;
+      const xpNeededForNextLevel = nextThreshold - currentThreshold;
+      const progress = Math.min(Math.max(xpIntoCurrentLevel / (xpNeededForNextLevel || 1), 0), 1);
+      return { level, xpIntoCurrentLevel, xpNeededForNextLevel, progress, lifetimeXP };
+    };
+
+    const INITIAL_STATE = {
+      user: { name: 'Ángel', avatar: '🎯', currentHP: 100, maxHP: 100 },
+      xpLedger: [{ id: 'xp-1', amount: 25 }],
+      coinsLedger: [{ id: 'c-1', amount: 50 }],
+      habits: [
+        { id: 'h-1', name: 'Ejercicio o Estiramiento 20m', icon: '🏋️', category: 'Fitness', xp: 25, coins: 12, streak: 1, linkedToBoss: true },
+        { id: 'h-2', name: 'Leer 15 Páginas de un Libro', icon: '📖', category: 'Conocimiento', xp: 10, coins: 5, streak: 3, linkedToBoss: false },
+        { id: 'h-3', name: 'Tomar 2 Litros de Agua', icon: '💧', category: 'Fitness', xp: 10, coins: 5, streak: 2, linkedToBoss: false }
+      ],
+      boss: { name: 'RETO FITNESS: 10 ENTRENAMIENTOS', description: 'Completa 10 sesiones para derrotar al Jefe.', remainingHP: 90, currentMetric: 1, targetMetric: 10 },
+      gallery: [],
+      shopItems: [
+        { id: 'item-1', name: 'Poción Pequeña', icon: '🧪', cost: 100, desc: 'Restablece +10 HP' },
+        { id: 'rw-1', name: 'Café de Especialidad', icon: '☕', cost: 80, desc: 'Premio Real' }
+      ]
+    };
+
+    function App() {
+      const [data, setData] = useState(() => {
+        try {
+          const saved = localStorage.getItem('LIFE_RPG_USER_DATA_V14');
+          return saved ? JSON.parse(saved) : INITIAL_STATE;
+        } catch (e) {
+          return INITIAL_STATE;
+        }
+      });
+
+      const [tab, setTab] = useState('today');
+      const [selectedHabit, setSelectedHabit] = useState(null);
+      const [previewImg, setPreviewImg] = useState(null);
+      const [aiStatus, setAiStatus] = useState('');
+      const [showShop, setShowShop] = useState(false);
+
+      const cameraRef = useRef(null);
+      const galleryRef = useRef(null);
+
+      const lifetimeXP = useMemo(() => data.xpLedger.reduce((sum, item) => sum + item.amount, 0), [data.xpLedger]);
+      const coinBalance = useMemo(() => data.coinsLedger.reduce((sum, item) => sum + item.amount, 0), [data.coinsLedger]);
+      const levelInfo = useMemo(() => calculateLevelState(lifetimeXP), [lifetimeXP]);
+
+      const handleImageSelect = (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onloadend = () => setPreviewImg(reader.result);
+          reader.readAsDataURL(file);
+        }
+      };
+
+      const completeHabitWithAI = () => {
+        if (!selectedHabit) return;
+        setAiStatus('Oráculo Evaluando Evidencia...');
+
+        setTimeout(() => {
+          const earnedXP = selectedHabit.xp;
+          const earnedCoins = selectedHabit.coins;
+
+          let newBossMetric = data.boss.currentMetric;
+          let newBossHP = data.boss.remainingHP;
+
+          if (selectedHabit.linkedToBoss) {
+            newBossMetric = Math.min(data.boss.targetMetric, newBossMetric + 1);
+            newBossHP = Math.max(0, Math.round(100 - (newBossMetric / data.boss.targetMetric) * 100));
+          }
+
+          const updated = {
+            ...data,
+            xpLedger: [...data.xpLedger, { id: `xp-${Date.now()}`, amount: earnedXP }],
+            coinsLedger: [...data.coinsLedger, { id: `c-${Date.now()}`, amount: earnedCoins }],
+            boss: { ...data.boss, currentMetric: newBossMetric, remainingHP: newBossHP },
+            gallery: previewImg ? [{ id: `g-${Date.now()}`, title: selectedHabit.name, imageUrl: previewImg, date: 'Hoy' }, ...data.gallery] : data.gallery
+          };
+
+          setData(updated);
+          localStorage.setItem('LIFE_RPG_USER_DATA_V14', JSON.stringify(updated));
+
+          setAiStatus('');
+          setSelectedHabit(null);
+          setPreviewImg(null);
+          alert(`✨ ¡Gemini ha verificado tu foto!\n\n+${earnedXP} XP | +${earnedCoins} Monedas ${selectedHabit.linkedToBoss ? '| ¡Daño Infligido al Jefe!' : ''}`);
+        }, 1200);
+      };
+
+      const buyItem = (item) => {
+        if (coinBalance < item.cost) {
+          alert('Monedas insuficientes.');
+          return;
+        }
+        const updated = {
+          ...data,
+          coinsLedger: [...data.coinsLedger, { id: `spend-${Date.now()}`, amount: -item.cost }]
+        };
+        setData(updated);
+        localStorage.setItem('LIFE_RPG_USER_DATA_V14', JSON.stringify(updated));
+        alert(`🎉 Compraste: ${item.name}`);
+      };
+
+      return (
+        <div className="max-w-md mx-auto min-h-screen bg-[#f4f4f6] pb-24 shadow-2xl relative">
+          
+          <header className="p-5 bg-white border-b border-neutral-200 flex justify-between items-center sticky top-0 z-40">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-[#f94a29] flex items-center justify-center text-white font-bold text-lg">
+                {data.user.avatar}
+              </div>
+              <div>
+                <p className="text-[10px] font-extrabold uppercase tracking-wider text-neutral-400">Jugador</p>
+                <h1 className="text-base font-black text-neutral-900">{data.user.name}</h1>
+              </div>
             </div>
-          </div>
-          <button onclick="completarHabito(25, 12)" class="bg-[#f94a29] active:scale-95 text-white text-xs font-bold px-3.5 py-2 rounded-full shadow-sm hover:bg-[#e03d1e]">
-            Completar
-          </button>
-        </div>
 
-        <div class="p-4 bg-white rounded-3xl border border-neutral-200 shadow-sm flex items-center justify-between">
-          <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-2xl bg-neutral-100 flex items-center justify-center text-xl">📖</div>
-            <div>
-              <h3 class="text-sm font-bold text-neutral-900">Leer 15 Páginas</h3>
-              <p class="text-xs text-[#f94a29] font-bold">+10 XP • +5 Monedas</p>
+            <div className="flex items-center gap-2">
+              <button onClick={() => setShowShop(true)} className="flex items-center gap-1 bg-amber-50 px-3 py-1.5 rounded-full border border-amber-200 active:scale-95">
+                <span className="text-xs font-black text-amber-700">🪙 {coinBalance}</span>
+              </button>
+              <div className="flex items-center gap-1 bg-rose-50 px-3 py-1.5 rounded-full border border-rose-200">
+                <span className="text-xs font-black text-rose-600">❤️ {data.user.currentHP} HP</span>
+              </div>
             </div>
+          </header>
+
+          <main className="p-5 space-y-5">
+            <div className="p-5 bg-neutral-900 text-white rounded-3xl shadow-xl space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="text-xs font-bold text-orange-400 uppercase tracking-wider">Progreso</span>
+                <span className="text-xl font-black">NIVEL {levelInfo.level}</span>
+              </div>
+              <div className="w-full bg-neutral-800 rounded-full h-2.5 overflow-hidden">
+                <div className="bg-[#f94a29] h-full transition-all duration-500" style={{ width: `${levelInfo.progress * 100}%` }}></div>
+              </div>
+              <p className="text-[11px] text-neutral-400 text-right font-medium">{levelInfo.xpIntoCurrentLevel} / {levelInfo.xpNeededForNextLevel} XP para Nivel {levelInfo.level + 1}</p>
+            </div>
+
+            {tab === 'today' && (
+              <div className="space-y-3">
+                <h2 className="text-xs font-extrabold uppercase tracking-wider text-neutral-400">Hábitos Diarios</h2>
+                {data.habits.map((habit) => (
+                  <div key={habit.id} className="p-4 bg-white rounded-3xl border border-neutral-200 shadow-sm flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-2xl bg-neutral-100 flex items-center justify-center text-xl">{habit.icon}</div>
+                      <div>
+                        <h3 className="text-sm font-bold text-neutral-900">{habit.name}</h3>
+                        <p className="text-xs text-[#f94a29] font-bold">+{habit.xp} XP • +{habit.coins} Monedas</p>
+                      </div>
+                    </div>
+                    <button onClick={() => setSelectedHabit(habit)} className="bg-[#f94a29] text-white text-xs font-bold px-3.5 py-2 rounded-full shadow-sm hover:bg-[#e03d1e]">
+                      📷 Verificar
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {tab === 'boss' && (
+              <div className="p-5 bg-white rounded-3xl border border-neutral-200 text-center space-y-3 shadow-sm">
+                <div className="text-4xl">👹</div>
+                <h3 className="text-sm font-black uppercase text-neutral-900">{data.boss.name}</h3>
+                <p className="text-xs text-neutral-500">{data.boss.description}</p>
+                <div className="w-full bg-neutral-200 h-3 rounded-full overflow-hidden">
+                  <div className="bg-red-500 h-full transition-all duration-500" style={{ width: `${data.boss.remainingHP}%` }}></div>
+                </div>
+                <div className="flex justify-between text-xs font-bold text-neutral-700">
+                  <span>Vida: {data.boss.remainingHP}%</span>
+                  <span>{data.boss.currentMetric} / {data.boss.targetMetric} Sesiones</span>
+                </div>
+              </div>
+            )}
+
+            {tab === 'journey' && (
+              <div className="space-y-3">
+                <h2 className="text-xs font-extrabold uppercase tracking-wider text-neutral-400">Galería de Pruebas Reales</h2>
+                {data.gallery.length === 0 ? (
+                  <p className="text-xs text-neutral-400 text-center py-6">No has tomado fotos de pruebas aún.</p>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3">
+                    {data.gallery.map(g => (
+                      <div key={g.id} className="bg-white rounded-2xl overflow-hidden border border-neutral-200 shadow-sm">
+                        <img src={g.imageUrl} className="w-full h-28 object-cover" />
+                        <p className="p-2 text-xs font-bold truncate">{g.title}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </main>
+
+          {selectedHabit && (
+            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="w-full max-w-xs bg-white rounded-3xl p-5 space-y-4 text-center shadow-2xl">
+                <h3 className="text-sm font-bold text-neutral-900">IA Verification: {selectedHabit.name}</h3>
+                <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={handleImageSelect} className="hidden" />
+                <input ref={galleryRef} type="file" accept="image/*" onChange={handleImageSelect} className="hidden" />
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button onClick={() => cameraRef.current.click()} className="py-2.5 bg-neutral-100 rounded-2xl text-xs font-bold border border-neutral-200">📷 Tomar Foto</button>
+                  <button onClick={() => galleryRef.current.click()} className="py-2.5 bg-neutral-100 rounded-2xl text-xs font-bold border border-neutral-200">🖼️ Galería</button>
+                </div>
+
+                {previewImg && <img src={previewImg} className="w-full h-32 object-cover rounded-2xl border border-neutral-200" />}
+
+                {aiStatus ? (
+                  <div className="text-xs font-bold text-[#f94a29] animate-pulse">{aiStatus}</div>
+                ) : (
+                  <div className="flex gap-2">
+                    <button onClick={() => setSelectedHabit(null)} className="flex-1 py-3 bg-neutral-100 rounded-2xl text-xs font-bold text-neutral-600">Cancelar</button>
+                    <button onClick={completeHabitWithAI} className="flex-1 py-3 bg-neutral-900 text-white rounded-2xl text-xs font-bold">Analizar e Ingresar</button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {showShop && (
+            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="w-full max-w-xs bg-white rounded-3xl p-5 space-y-4 shadow-2xl">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-sm font-bold">Tienda de Recompensas</h3>
+                  <button onClick={() => setShowShop(false)} className="text-xs font-bold text-neutral-400">✕</button>
+                </div>
+                <div className="space-y-2">
+                  {data.shopItems.map(item => (
+                    <div key={item.id} className="p-3 bg-neutral-50 rounded-2xl flex justify-between items-center border border-neutral-200">
+                      <div className="text-left">
+                        <p className="text-xs font-bold">{item.icon} {item.name}</p>
+                        <p className="text-[10px] text-neutral-500">{item.desc}</p>
+                      </div>
+                      <button onClick={() => buyItem(item)} className="px-3 py-1 bg-neutral-900 text-white text-xs font-bold rounded-full">🪙 {item.cost}</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="fixed bottom-4 left-1/2 -translate-x-1/2 w-[90%] max-w-sm bg-neutral-900 text-white p-2 rounded-full shadow-2xl flex justify-around items-center z-50">
+            <button onClick={() => setTab('today')} className={`px-4 py-2 rounded-full text-xs font-bold transition-all ${tab === 'today' ? 'bg-[#f94a29] text-white' : 'text-neutral-400'}`}>Hoy</button>
+            <button onClick={() => setTab('boss')} className={`px-4 py-2 rounded-full text-xs font-bold transition-all ${tab === 'boss' ? 'bg-[#f94a29] text-white' : 'text-neutral-400'}`}>Jefe</button>
+            <button onClick={() => setTab('journey')} className={`px-4 py-2 rounded-full text-xs font-bold transition-all ${tab === 'journey' ? 'bg-[#f94a29] text-white' : 'text-neutral-400'}`}>Galería</button>
           </div>
-          <button onclick="completarHabito(10, 5)" class="bg-[#f94a29] active:scale-95 text-white text-xs font-bold px-3.5 py-2 rounded-full shadow-sm hover:bg-[#e03d1e]">
-            Completar
-          </button>
+
         </div>
-      </div>
-    </main>
-
-    <!-- Navigation -->
-    <div class="fixed bottom-4 left-1/2 -translate-x-1/2 w-[90%] max-w-sm bg-neutral-900 text-white p-2.5 rounded-full shadow-2xl flex justify-around items-center z-50">
-      <button class="px-4 py-2 bg-[#f94a29] rounded-full text-xs font-bold">Hoy</button>
-      <button class="px-4 py-2 text-neutral-400 text-xs font-bold">Jefe</button>
-      <button class="px-4 py-2 text-neutral-400 text-xs font-bold">Perfil</button>
-    </div>
-
-  </div>
-
-  <script>
-    let xp = 25;
-    let coins = 50;
-
-    function completarHabito(gananciaXP, gananciaMonedas) {
-      xp += gananciaXP;
-      coins += gananciaMonedas;
-
-      document.getElementById('xp-display').innerText = xp;
-      document.getElementById('coins-display').innerText = '🪙 ' + coins;
-      document.getElementById('xp-bar').style.width = Math.min(xp, 100) + '%';
-
-      alert('🎉 ¡Hábito completado! + ' + gananciaXP + ' XP | + ' + gananciaMonedas + ' Monedas');
+      );
     }
-  </script>
 
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
 </body>
 </html>
