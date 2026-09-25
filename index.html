@@ -11,17 +11,103 @@
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
     body { font-family: 'Plus Jakarta Sans', sans-serif; -webkit-tap-highlight-color: transparent; }
   </style>
-
-  <!-- Carga de React, Babel y Lucide Icons para navegador -->
-  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <script src="https://unpkg.com/lucide@latest"></script>
 </head>
-<body class="bg-neutral-100 text-neutral-900 antialiased selection:bg-orange-500 selection:text-white">
-  <div id="root"></div>
+<body class="bg-neutral-100 text-neutral-900 antialiased">
+  
+  <div id="app" class="max-w-md mx-auto min-h-screen bg-[#f4f4f6] pb-24 shadow-2xl relative">
+    
+    <!-- Header TopBar -->
+    <header class="p-5 bg-white border-b border-neutral-200 flex justify-between items-center sticky top-0 z-40">
+      <div class="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-full bg-[#f94a29] flex items-center justify-center text-white font-bold text-lg p-2 bg-[#f94a29] rounded-full text-white">
+          🎯
+        </div>
+        <div>
+          <p class="text-[10px] font-extrabold uppercase tracking-wider text-neutral-400">Jugador</p>
+          <h1 class="text-base font-black text-neutral-900">Ángel</h1>
+        </div>
+      </div>
 
-  <!-- Carga de tu código fuente completo -->
-  <script type="text/babel" src="./Questly.tsx"></script>
+      <div class="flex items-center gap-2">
+        <div class="flex items-center gap-1 bg-amber-50 px-3 py-1.5 rounded-full border border-amber-200">
+          <span id="coins-display" class="text-xs font-black text-amber-700">🪙 50</span>
+        </div>
+        <div class="flex items-center gap-1 bg-rose-50 px-3 py-1.5 rounded-full border border-rose-200">
+          <span class="text-xs font-black text-rose-600">❤️ 100 HP</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Content -->
+    <main class="p-5 space-y-5">
+      <!-- Nivel Card -->
+      <div class="p-5 bg-neutral-900 text-white rounded-3xl shadow-xl space-y-3">
+        <div class="flex justify-between items-center">
+          <span class="text-xs font-bold text-orange-400 uppercase tracking-wider">Progreso</span>
+          <span class="text-xl font-black">NIVEL 1</span>
+        </div>
+        <div class="w-full bg-neutral-800 rounded-full h-2.5 overflow-hidden">
+          <div id="xp-bar" class="bg-[#f94a29] h-full transition-all duration-500" style="width: 25%;"></div>
+        </div>
+        <p class="text-[11px] text-neutral-400 text-right font-medium"><span id="xp-display">25</span> / 100 XP para Nivel 2</p>
+      </div>
+
+      <!-- Hábitos -->
+      <div class="space-y-3">
+        <h2 class="text-xs font-extrabold uppercase tracking-wider text-neutral-400">Hábitos Diarios</h2>
+        
+        <div class="p-4 bg-white rounded-3xl border border-neutral-200 shadow-sm flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-2xl bg-neutral-100 flex items-center justify-center text-xl">🏋️</div>
+            <div>
+              <h3 class="text-sm font-bold text-neutral-900">Ejercicio 20m</h3>
+              <p class="text-xs text-[#f94a29] font-bold">+25 XP • +12 Monedas</p>
+            </div>
+          </div>
+          <button onclick="completarHabito(25, 12)" class="bg-[#f94a29] active:scale-95 text-white text-xs font-bold px-3.5 py-2 rounded-full shadow-sm hover:bg-[#e03d1e]">
+            Completar
+          </button>
+        </div>
+
+        <div class="p-4 bg-white rounded-3xl border border-neutral-200 shadow-sm flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-2xl bg-neutral-100 flex items-center justify-center text-xl">📖</div>
+            <div>
+              <h3 class="text-sm font-bold text-neutral-900">Leer 15 Páginas</h3>
+              <p class="text-xs text-[#f94a29] font-bold">+10 XP • +5 Monedas</p>
+            </div>
+          </div>
+          <button onclick="completarHabito(10, 5)" class="bg-[#f94a29] active:scale-95 text-white text-xs font-bold px-3.5 py-2 rounded-full shadow-sm hover:bg-[#e03d1e]">
+            Completar
+          </button>
+        </div>
+      </div>
+    </main>
+
+    <!-- Navigation -->
+    <div class="fixed bottom-4 left-1/2 -translate-x-1/2 w-[90%] max-w-sm bg-neutral-900 text-white p-2.5 rounded-full shadow-2xl flex justify-around items-center z-50">
+      <button class="px-4 py-2 bg-[#f94a29] rounded-full text-xs font-bold">Hoy</button>
+      <button class="px-4 py-2 text-neutral-400 text-xs font-bold">Jefe</button>
+      <button class="px-4 py-2 text-neutral-400 text-xs font-bold">Perfil</button>
+    </div>
+
+  </div>
+
+  <script>
+    let xp = 25;
+    let coins = 50;
+
+    function completarHabito(gananciaXP, gananciaMonedas) {
+      xp += gananciaXP;
+      coins += gananciaMonedas;
+
+      document.getElementById('xp-display').innerText = xp;
+      document.getElementById('coins-display').innerText = '🪙 ' + coins;
+      document.getElementById('xp-bar').style.width = Math.min(xp, 100) + '%';
+
+      alert('🎉 ¡Hábito completado! + ' + gananciaXP + ' XP | + ' + gananciaMonedas + ' Monedas');
+    }
+  </script>
+
 </body>
 </html>
