@@ -1,87 +1,2591 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Life RPG</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <style>
-    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
-    body { font-family: 'Plus Jakarta Sans', sans-serif; -webkit-tap-highlight-color: transparent; }
-  </style>
-</head>
-<body class="bg-neutral-100 text-neutral-900 antialiased selection:bg-orange-500 selection:text-white">
-  <div id="root"></div>
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { 
+  Flame, 
+  Coins, 
+  Heart, 
+  Sparkles, 
+  Trophy, 
+  CheckCircle2, 
+  Camera, 
+  Image as ImageIcon,
+  Crosshair, 
+  User, 
+  Compass, 
+  ShoppingBag, 
+  History, 
+  Plus, 
+  X,
+  Volume2,
+  VolumeX,
+  Swords,
+  Loader2,
+  Edit3,
+  Trash2,
+  RotateCcw,
+  Check,
+  ShieldAlert,
+  Wand2,
+  Cloud,
+  LogOut,
+  UserPlus,
+  LogIn,
+  KeyRound,
+  Globe
+} from 'lucide-react';
 
-  <script type="text/babel">
-    const { useState, useEffect, useRef } = React;
+const roundToNearest10 = (num) => Math.round(num / 10) * 10;
 
-    function App() {
-      const [user, setUser] = useState({ name: 'Ángel', level: 1, xp: 0, coins: 50, hp: 100, maxHp: 100 });
-      const [tab, setTab] = useState('today');
+export const thresholdForLevel = (level) => {
+  if (level <= 1) return 0;
+  return roundToNearest10(205 * Math.pow(level - 1, 1.77));
+};
 
-      return (
-        <div className="max-w-md mx-auto min-h-screen bg-[#f4f4f6] pb-24 shadow-2xl relative">
-          {/* Header TopBar */}
-          <div className="p-5 bg-white border-b border-neutral-200 flex justify-between items-center sticky top-0 z-40">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-wider text-neutral-400">Jugador</p>
-              <h1 className="text-xl font-extrabold text-neutral-900">{user.name}</h1>
+export const calculateLevelState = (lifetimeXP) => {
+  let level = 1;
+  while (thresholdForLevel(level + 1) <= lifetimeXP) {
+    level++;
+  }
+  const currentThreshold = thresholdForLevel(level);
+  const nextThreshold = thresholdForLevel(level + 1);
+  const xpIntoCurrentLevel = lifetimeXP - currentThreshold;
+  const xpNeededForNextLevel = nextThreshold - currentThreshold;
+  const progress = Math.min(Math.max(xpIntoCurrentLevel / (xpNeededForNextLevel || 1), 0), 1);
+
+  return {
+    level,
+    xpIntoCurrentLevel,
+    xpNeededForNextLevel,
+    progress,
+    lifetimeXP
+  };
+};
+
+function pcmToWav(pcm16, sampleRate) {
+  const buffer = new ArrayBuffer(44 + pcm16.length * 2);
+  const view = new DataView(buffer);
+  const writeString = (offset, string) => {
+    for (let i = 0; i < string.length; i++) {
+      view.setUint8(offset + i, string.charCodeAt(i));
+    }
+  };
+  writeString(0, 'RIFF');
+  view.setUint32(4, 36 + pcm16.length * 2, true);
+  writeString(8, 'WAVE');
+  writeString(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeString(36, 'data');
+  view.setUint32(40, pcm16.length * 2, true);
+  for (let i = 0; i < pcm16.length; i++) {
+    view.setInt16(44 + i * 2, pcm16[i], true);
+  }
+  return new Blob([buffer], { type: 'audio/wav' });
+}
+
+function base64ToArrayBuffer(base64) {
+  const binaryString = atob(base64);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes.buffer;
+}
+
+const getTodayDateStr = () => {
+  const today = new Date();
+  return today.toISOString().split('T')[0];
+};
+
+const getRecentWeekDays = () => {
+  const days = [];
+  const today = new Date();
+  for (let i = -3; i <= 3; i++) {
+    const d = new Date(today);
+    d.setDate(today.getDate() + i);
+    const dateStr = d.toISOString().split('T')[0];
+    const dayName = d.toLocaleDateString('es-ES', { weekday: 'short' });
+    const dayNum = d.getDate();
+    days.push({
+      dateStr,
+      dayName: dayName.charAt(0).toUpperCase() + dayName.slice(1, 3),
+      dayNum: dayNum.toString(),
+      isToday: i === 0
+    });
+  }
+  return days;
+};
+
+const INITIAL_STATE = {
+  onboardingCompleted: false,
+  user: {
+    id: 'user-player-1',
+    name: 'Aventurero',
+    avatar: '🎯',
+    customAvatarUrl: null,
+    joinDate: new Date().toLocaleDateString('es-ES', { month: 'short', year: 'numeric' }),
+    maxHP: 100,
+    currentHP: 100,
+    recoveryMode: false,
+    selectedGoals: ['Salud', 'Mente', 'Productividad']
+  },
+  xpLedger: [],
+  coinsLedger: [],
+  skillsLedger: {
+    Fitness: 0,
+    Conocimiento: 0,
+    Creatividad: 0,
+    Aventura: 0,
+    Social: 0,
+    Finanzas: 0
+  },
+  habits: [
+    {
+      id: 'h-1',
+      name: 'Ejercicio o Estiramiento 20m',
+      icon: '🏋️',
+      category: 'Fitness',
+      difficulty: 'Medium',
+      xp: 25,
+      coins: 12,
+      proofRequired: true,
+      streak: 0,
+      linkedToBoss: true
+    },
+    {
+      id: 'h-2',
+      name: 'Leer 15 Páginas de un Libro',
+      icon: '📖',
+      category: 'Conocimiento',
+      difficulty: 'Easy',
+      xp: 10,
+      coins: 5,
+      proofRequired: true,
+      streak: 0,
+      linkedToBoss: false
+    },
+    {
+      id: 'h-3',
+      name: 'Tomar 2 Litros de Agua',
+      icon: '💧',
+      category: 'Fitness',
+      difficulty: 'Easy',
+      xp: 10,
+      coins: 5,
+      proofRequired: false,
+      streak: 0,
+      linkedToBoss: false
+    }
+  ],
+  completionsByDate: {},
+  enemies: [
+    {
+      id: 'e-1',
+      name: 'Doomscrolling Nocturno',
+      icon: '📱',
+      avoidanceCue: 'Dejar el teléfono lejos de la cama a las 10 PM',
+      damage: 10
+    },
+    {
+      id: 'e-2',
+      name: 'Comida Chatarra sin Plan',
+      icon: '🍔',
+      avoidanceCue: 'Elegir fruta o snack nutritivo',
+      damage: 15
+    }
+  ],
+  enemyReportsByDate: {},
+  quests: [
+    {
+      id: 'q-1',
+      title: 'Explorador Urbano',
+      category: 'Aventura',
+      description: 'Visita un café o parque nuevo en tu ciudad esta semana.',
+      difficulty: 'Fácil',
+      xp: 100,
+      coins: 40,
+      status: 'accepted'
+    }
+  ],
+  boss: {
+    id: 'boss-1',
+    name: 'RETO FITNESS: 10 ENTRENAMIENTOS',
+    category: 'Fitness',
+    description: 'Completa 10 sesiones de entrenamiento para derrotar a este Jefe.',
+    targetMetric: 10,
+    currentMetric: 0,
+    unit: 'sesiones',
+    remainingHP: 100,
+    xpReward: 1000,
+    coinReward: 500,
+    completed: false
+  },
+  gallery: [],
+  shopItems: [
+    { id: 'item-potion-small', name: 'Poción Pequeña de Salud', icon: '🧪', type: 'game', effect: '+10 HP', cost: 100, desc: 'Restaura 10 HP inmediatamente.', custom: false },
+    { id: 'item-potion-big', name: 'Poción Mayor de Salud', icon: '⚗️', type: 'game', effect: '+25 HP', cost: 250, desc: 'Restaura 25 HP inmediatamente.', custom: false },
+    { id: 'item-full-heal', name: 'Restauración Total', icon: '✨', type: 'game', effect: 'Restablece 100 HP', cost: 600, desc: 'Salud al máximo.', custom: false },
+    { id: 'rw-coffee', name: 'Café de Especialidad', icon: '☕', type: 'real', effect: 'Premio Real', cost: 80, desc: 'Disfruta un postre o café sin culpa.', custom: false },
+    { id: 'rw-game-night', name: 'Noche de Videojuegos', icon: '🎮', type: 'real', effect: 'Premio Real', cost: 200, desc: 'Tiempo libre de calidad para ti.', custom: false }
+  ],
+  achievements: [
+    { id: 'ach-1', title: 'Primer Paso', icon: '🌱', desc: 'Verifica tu primer hábito real', unlocked: false },
+    { id: 'ach-2', title: 'Constancia 3 Días', icon: '🔥', desc: 'Logra racha de 3 días', unlocked: false },
+    { id: 'ach-3', title: 'Racha Semanal', icon: '⚡', desc: 'Logra racha de 7 días', unlocked: false },
+    { id: 'ach-4', title: 'Cazajefes', icon: '⚔️', desc: 'Derrota a tu primer Jefe', unlocked: false },
+    { id: 'ach-5', title: 'Fotógrafo Real', icon: '📸', desc: 'Guarda 3 pruebas en tu galería', unlocked: false },
+    { id: 'ach-6', title: 'Titán Fitness', icon: '🏋️', desc: 'Acumula 100 XP en Fitness', unlocked: false },
+    { id: 'ach-7', title: 'Mente Maestra', icon: '📖', desc: 'Acumula 100 XP en Conocimiento', unlocked: false },
+    { id: 'ach-8', title: 'Comprador Épico', icon: '🛒', desc: 'Compra tu primer objeto en la tienda', unlocked: false },
+    { id: 'ach-9', title: 'Nivel Leyenda', icon: '⭐', desc: 'Alcanza el Nivel 3 o superior', unlocked: false }
+  ]
+};
+
+export default function App() {
+  const [data, setData] = useState(() => {
+    try {
+      const saved = localStorage.getItem('LIFE_RPG_USER_DATA_V11');
+      return saved ? JSON.parse(saved) : INITIAL_STATE;
+    } catch (e) {
+      return INITIAL_STATE;
+    }
+  });
+
+  const weekDays = useMemo(() => getRecentWeekDays(), []);
+  const [selectedDate, setSelectedDate] = useState(getTodayDateStr());
+
+  const [activeTab, setActiveTab] = useState('today');
+  const [rewardModal, setRewardModal] = useState(null);
+  const [activeModal, setActiveModal] = useState(null); 
+
+  const [onboardingStep, setOnboardingStep] = useState(1);
+  const [onboardingName, setOnboardingName] = useState('');
+  const [onboardingGoals, setOnboardingGoals] = useState(['Salud', 'Productividad']);
+
+  const [authMode, setAuthMode] = useState('login');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authError, setAuthError] = useState('');
+  const [authMessage, setAuthMessage] = useState('');
+  const [userAccount, setUserAccount] = useState(null);
+
+  const [editingHabit, setEditingHabit] = useState(null);
+  const [habitForm, setHabitForm] = useState({ 
+    name: '', 
+    icon: '⚡', 
+    category: 'Fitness', 
+    difficulty: 'Medium', 
+    proofRequired: true,
+    linkedToBoss: true
+  });
+
+  const [editingEnemy, setEditingEnemy] = useState(null);
+  const [enemyForm, setEnemyForm] = useState({ 
+    name: '', 
+    icon: '👿', 
+    avoidanceCue: '', 
+    damage: 10 
+  });
+
+  const [bossForm, setBossForm] = useState({
+    name: '',
+    description: '',
+    targetMetric: 10,
+    unit: 'sesiones',
+    category: 'Fitness'
+  });
+
+  const [editingReward, setEditingReward] = useState(null);
+  const [rewardForm, setRewardForm] = useState({
+    name: '',
+    icon: '🎁',
+    cost: 100,
+    desc: 'Premio personalizado'
+  });
+
+  const [profileNameInput, setProfileNameInput] = useState(data.user.name);
+
+  const [selectedHabitForProof, setSelectedHabitForProof] = useState(null);
+  const [selectedQuestForProof, setSelectedQuestForProof] = useState(null);
+  const [capturedImagePreview, setCapturedImagePreview] = useState(null);
+  const [capturedImageBase64, setCapturedImageBase64] = useState(null);
+  const [proofNote, setProofNote] = useState('');
+  
+  const cameraInputRef = useRef(null);
+  const galleryInputRef = useRef(null);
+  const avatarInputRef = useRef(null);
+
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiStatusMessage, setAiStatusMessage] = useState('');
+  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+  const audioRef = useRef(null);
+
+  const updateAppDataAndSync = (newDataOrUpdater) => {
+    setData((prevData) => {
+      const updatedData = typeof newDataOrUpdater === 'function' ? newDataOrUpdater(prevData) : newDataOrUpdater;
+      try {
+        localStorage.setItem('LIFE_RPG_USER_DATA_V11', JSON.stringify(updatedData));
+      } catch (e) {
+        console.warn('LocalStorage save error', e);
+      }
+      return updatedData;
+    });
+  };
+
+  const lifetimeXP = useMemo(() => {
+    return data.xpLedger.reduce((sum, item) => sum + item.amount, 0);
+  }, [data.xpLedger]);
+
+  const coinBalance = useMemo(() => {
+    return data.coinsLedger.reduce((sum, item) => sum + item.amount, 0);
+  }, [data.coinsLedger]);
+
+  const levelInfo = useMemo(() => {
+    return calculateLevelState(lifetimeXP);
+  }, [lifetimeXP]);
+
+  const checkAchievements = (currentData, newXP, newSkills, newBoss, newGallery, newShopBuy) => {
+    return currentData.achievements.map(ach => {
+      let shouldUnlock = ach.unlocked;
+
+      if (ach.id === 'ach-1' && newGallery.length >= 1) shouldUnlock = true;
+      if (ach.id === 'ach-2' && currentData.habits.some(h => h.streak >= 3)) shouldUnlock = true;
+      if (ach.id === 'ach-3' && currentData.habits.some(h => h.streak >= 7)) shouldUnlock = true;
+      if (ach.id === 'ach-4' && newBoss && newBoss.completed) shouldUnlock = true;
+      if (ach.id === 'ach-5' && newGallery.length >= 3) shouldUnlock = true;
+      if (ach.id === 'ach-6' && (newSkills?.Fitness || 0) >= 100) shouldUnlock = true;
+      if (ach.id === 'ach-7' && (newSkills?.Conocimiento || 0) >= 100) shouldUnlock = true;
+      if (ach.id === 'ach-8' && newShopBuy) shouldUnlock = true;
+      if (ach.id === 'ach-9' && levelInfo.level >= 3) shouldUnlock = true;
+
+      return { ...ach, unlocked: shouldUnlock };
+    });
+  };
+
+  const handleImageFileSelect = (event, isAvatar = false) => {
+    const file = event.target.files && event.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const result = reader.result;
+        if (isAvatar) {
+          updateAppDataAndSync(prev => ({
+            ...prev,
+            user: { ...prev.user, customAvatarUrl: result }
+          }));
+        } else {
+          setCapturedImagePreview(result);
+          const base64Data = result.split(',')[1];
+          setCapturedImageBase64({
+            mimeType: file.type || 'image/jpeg',
+            data: base64Data
+          });
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const analyzeProofWithGeminiVision = async (habit, imageObj, noteText) => {
+    setAiLoading(true);
+    setAiStatusMessage("Gemini Vision evaluando tu prueba visual...");
+
+    try {
+      const apiKey = "";
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+
+      const prompt = `Actúa como el Oráculo Evaluador de un RPG de la vida real.
+      El jugador "${data.user.name}" envió una foto para el hábito: "${habit.name}" (Categoría: ${habit.category}).
+      Nota del jugador: "${noteText || 'Sin nota'}".
+
+      Examina la foto adjunta. Evalúa si la foto corresponde a la realización real del hábito.
+
+      Responde ÚNICAMENTE en JSON estricto:
+      {
+        "verified": true/false (true si demuestra esfuerzo o relación con el hábito, false si es oscura o irrelevante),
+        "heroicPraise": "Mensaje épico y alentador de 1 frase reconociendo su disciplina.",
+        "bonusXP": 5 (si la foto es excelente) o 0,
+        "rejectionReason": "Explicación amable si no fue aceptada."
+      }`;
+
+      let parts = [{ text: prompt }];
+
+      if (imageObj && imageObj.data) {
+        parts.push({
+          inlineData: {
+            mimeType: imageObj.mimeType,
+            data: imageObj.data
+          }
+        });
+      }
+
+      const payload = {
+        contents: [{ role: 'user', parts }],
+        generationConfig: { responseMimeType: 'application/json' }
+      };
+
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const result = await response.json();
+      const rawText = result.candidates?.[0]?.content?.parts?.[0]?.text;
+
+      if (rawText) {
+        return JSON.parse(rawText);
+      }
+    } catch (err) {
+      console.warn('Fallback Gemini Vision Evaluation', err);
+    } finally {
+      setAiLoading(false);
+      setAiStatusMessage('');
+    }
+
+    return {
+      verified: true,
+      heroicPraise: "¡El Oráculo valida tu evidencia! Hábito acreditado.",
+      bonusXP: 5
+    };
+  };
+
+  const generateQuestsWithGeminiAI = async () => {
+    setAiLoading(true);
+    setAiStatusMessage("Gemini forjando una Misión Semanal...");
+
+    try {
+      const apiKey = "";
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+
+      const habitNames = data.habits.map(h => h.name).join(', ');
+      const goals = data.user.selectedGoals.join(', ');
+
+      const prompt = `Genera 1 Misión Semanal motivadora para el jugador "${data.user.name}".
+      Sus hábitos actuales son: "${habitNames}". Sus áreas de interés son: "${goals}".
+
+      INSTRUCCIÓN CLAVE: La misión debe sacarlo ligeramente de su zona de confort de manera positiva y agradable.
+
+      Responde ÚNICAMENTE con un JSON estricto:
+      {
+        "title": "Título corto y épico (ej: Explorador del Sabor)",
+        "category": "Aventura" | "Social" | "Conocimiento" | "Creatividad" | "Fitness" | "Finanzas",
+        "description": "Descripción clara y motivadora de 1 frase.",
+        "difficulty": "Fácil" | "Media" | "Épica",
+        "xp": 150,
+        "coins": 60
+      }`;
+
+      const payload = {
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: { responseMimeType: 'application/json' }
+      };
+
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const result = await response.json();
+      const rawText = result.candidates?.[0]?.content?.parts?.[0]?.text;
+
+      if (rawText) {
+        const generated = JSON.parse(rawText);
+        const newQuest = {
+          id: `q-ai-${Date.now()}`,
+          title: generated.title || 'Misión Especial de Crecimiento',
+          category: generated.category || 'Aventura',
+          description: generated.description || 'Haz algo positivo fuera de tu rutina.',
+          difficulty: generated.difficulty || 'Media',
+          xp: Number(generated.xp) || 150,
+          coins: Number(generated.coins) || 60,
+          status: 'accepted'
+        };
+
+        updateAppDataAndSync(prev => ({
+          ...prev,
+          quests: [newQuest, ...prev.quests]
+        }));
+
+        setRewardModal({
+          title: '✨ ¡Misión Semanal Forjada!',
+          subtitle: `Invocada por IA: "${newQuest.title}". Completa la actividad y sube tu foto para ganar ${newQuest.xp} XP.`
+        });
+      }
+    } catch (err) {
+      console.warn('Error al generar Misión con IA', err);
+    } finally {
+      setAiLoading(false);
+      setAiStatusMessage('');
+    }
+  };
+
+  const generateBossWithGeminiAI = async () => {
+    setAiLoading(true);
+    setAiStatusMessage("Gemini invocando un nuevo Jefe para tus metas...");
+
+    try {
+      const apiKey = "";
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+
+      const habitNames = data.habits.map(h => h.name).join(', ');
+      const goals = data.user.selectedGoals.join(', ');
+
+      const prompt = `Genera un "Jefe Final" de meta personal de 1 mes para un juego Life RPG.
+      Jugador: "${data.user.name}". Metas de interés: "${goals}". Hábitos actuales: "${habitNames}".
+
+      Responde ÚNICAMENTE con un JSON estricto:
+      {
+        "name": "TITULAR EN MAYÚSCULAS DEL RETO (ej: RETO LECTURA DE 3 LIBROS)",
+        "description": "Explicación clara de 1 oración del desafío.",
+        "category": "Fitness" | "Conocimiento" | "Creatividad" | "Finanzas" | "Aventura" | "Social",
+        "targetMetric": 10,
+        "unit": "sesiones" | "libros" | "km" | "capítulos"
+      }`;
+
+      const payload = {
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: { responseMimeType: 'application/json' }
+      };
+
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const result = await response.json();
+      const rawText = result.candidates?.[0]?.content?.parts?.[0]?.text;
+
+      if (rawText) {
+        const generated = JSON.parse(rawText);
+        const target = Number(generated.targetMetric) || 10;
+        
+        updateAppDataAndSync(prev => ({
+          ...prev,
+          boss: {
+            ...prev.boss,
+            name: generated.name.toUpperCase(),
+            description: generated.description,
+            category: generated.category || 'Fitness',
+            targetMetric: target,
+            unit: generated.unit || 'sesiones',
+            currentMetric: 0,
+            remainingHP: 100,
+            completed: false
+          }
+        }));
+
+        setRewardModal({
+          title: '⚔️ ¡Nuevo Jefe Invocado!',
+          subtitle: `Invocado por IA: ${generated.name}. Completa tus hábitos de ${generated.category} para reducir su vida.`
+        });
+      }
+    } catch (err) {
+      console.warn('Error al generar Jefe con IA', err);
+    } finally {
+      setAiLoading(false);
+      setAiStatusMessage('');
+    }
+  };
+
+  const handleVerifyHabit = async () => {
+    if (!selectedHabitForProof) return;
+
+    let verificationResult = { verified: true, heroicPraise: '¡Hábito completado exitosamente!', bonusXP: 0 };
+
+    if (capturedImageBase64) {
+      verificationResult = await analyzeProofWithGeminiVision(selectedHabitForProof, capturedImageBase64, proofNote);
+      
+      if (verificationResult.verified === false) {
+        setRewardModal({
+          title: 'Foto no Aceptada',
+          subtitle: verificationResult.rejectionReason || 'La imagen no demuestra el hábito. Intenta con otra toma.',
+          error: true
+        });
+        return;
+      }
+    }
+
+    const habit = selectedHabitForProof;
+    const earnedXP = habit.xp + (verificationResult.bonusXP || 0);
+
+    const xpTx = {
+      id: `xp-${Date.now()}`,
+      amount: earnedXP,
+      source: 'habit',
+      desc: `Hábito completado: ${habit.name}`,
+      timestamp: Date.now()
+    };
+
+    const coinTx = {
+      id: `c-${Date.now()}`,
+      amount: habit.coins,
+      type: 'earn',
+      desc: `Recompensa: ${habit.name}`,
+      timestamp: Date.now()
+    };
+
+    const dateCompletions = data.completionsByDate[selectedDate] || [];
+    const updatedDateCompletions = dateCompletions.includes(habit.id) 
+      ? dateCompletions 
+      : [...dateCompletions, habit.id];
+
+    const updatedHabits = data.habits.map(h => 
+      h.id === habit.id ? { ...h, streak: h.streak + 1 } : h
+    );
+
+    const skillCategory = habit.category || 'Fitness';
+    const updatedSkills = {
+      ...data.skillsLedger,
+      [skillCategory]: (data.skillsLedger[skillCategory] || 0) + earnedXP
+    };
+
+    let updatedBoss = { ...data.boss };
+    let bossDefeatedNow = false;
+
+    const isHabitLinkedToBoss = habit.linkedToBoss || habit.category === updatedBoss.category;
+
+    if (isHabitLinkedToBoss && !updatedBoss.completed && updatedBoss.currentMetric < updatedBoss.targetMetric) {
+      const newMetric = updatedBoss.currentMetric + 1;
+      bossDefeatedNow = newMetric >= updatedBoss.targetMetric;
+      const newRemainingHP = bossDefeatedNow ? 0 : Math.max(1, Math.round(100 - (newMetric / updatedBoss.targetMetric) * 100));
+
+      updatedBoss = {
+        ...updatedBoss,
+        currentMetric: newMetric,
+        remainingHP: newRemainingHP,
+        completed: bossDefeatedNow
+      };
+    }
+
+    let updatedGallery = [...data.gallery];
+    if (capturedImagePreview) {
+      updatedGallery.unshift({
+        id: `g-${Date.now()}`,
+        date: new Date(selectedDate + 'T12:00:00').toLocaleDateString('es-ES'),
+        title: habit.name,
+        sourceType: 'Hábito',
+        xp: earnedXP,
+        note: proofNote || verificationResult.heroicPraise,
+        imageUrl: capturedImagePreview
+      });
+    }
+
+    const updatedAchievements = checkAchievements(data, earnedXP, updatedSkills, updatedBoss, updatedGallery, false);
+
+    updateAppDataAndSync(prev => {
+      let newXpLedger = [...prev.xpLedger, xpTx];
+      let newCoinsLedger = [...prev.coinsLedger, coinTx];
+
+      if (bossDefeatedNow) {
+        newXpLedger.push({ id: `xp-boss-${Date.now()}`, amount: updatedBoss.xpReward, desc: `¡Jefe Derrotado: ${updatedBoss.name}!`, timestamp: Date.now() });
+        newCoinsLedger.push({ id: `c-boss-${Date.now()}`, amount: updatedBoss.coinReward, type: 'earn', desc: `Recompensa por Derrotar al Jefe`, timestamp: Date.now() });
+      }
+
+      return {
+        ...prev,
+        xpLedger: newXpLedger,
+        coinsLedger: newCoinsLedger,
+        habits: updatedHabits,
+        completionsByDate: {
+          ...prev.completionsByDate,
+          [selectedDate]: updatedDateCompletions
+        },
+        skillsLedger: updatedSkills,
+        boss: updatedBoss,
+        gallery: updatedGallery,
+        achievements: updatedAchievements
+      };
+    });
+
+    setSelectedHabitForProof(null);
+    setCapturedImageBase64(null);
+    setCapturedImagePreview(null);
+    setProofNote('');
+    setActiveModal(null);
+
+    setRewardModal({
+      title: bossDefeatedNow ? '⚔️ ¡JEFE DERROTADO Y HÁBITO COMPLETADO!' : '¡Acción Verificada!',
+      subtitle: verificationResult.heroicPraise + (isHabitLinkedToBoss ? ` ¡Daño infligido al Jefe (${updatedBoss.currentMetric}/${updatedBoss.targetMetric})!` : ''),
+      xp: earnedXP + (bossDefeatedNow ? updatedBoss.xpReward : 0),
+      coins: habit.coins + (bossDefeatedNow ? updatedBoss.coinReward : 0),
+      skill: habit.category
+    });
+  };
+
+  const handleVerifyQuest = () => {
+    if (!selectedQuestForProof) return;
+
+    const quest = selectedQuestForProof;
+    const earnedXP = quest.xp;
+    const earnedCoins = quest.coins;
+
+    const xpTx = {
+      id: `xp-q-${Date.now()}`,
+      amount: earnedXP,
+      source: 'quest',
+      desc: `Misión completada: ${quest.title}`,
+      timestamp: Date.now()
+    };
+
+    const coinTx = {
+      id: `c-q-${Date.now()}`,
+      amount: earnedCoins,
+      type: 'earn',
+      desc: `Recompensa Misión: ${quest.title}`,
+      timestamp: Date.now()
+    };
+
+    const updatedQuests = data.quests.map(q => 
+      q.id === quest.id ? { ...q, status: 'completed' } : q
+    );
+
+    const skillCategory = quest.category || 'Aventura';
+    const updatedSkills = {
+      ...data.skillsLedger,
+      [skillCategory]: (data.skillsLedger[skillCategory] || 0) + earnedXP
+    };
+
+    let updatedGallery = [...data.gallery];
+    if (capturedImagePreview) {
+      updatedGallery.unshift({
+        id: `g-q-${Date.now()}`,
+        date: new Date().toLocaleDateString('es-ES'),
+        title: quest.title,
+        sourceType: 'Misión Semanal',
+        xp: earnedXP,
+        note: proofNote || '¡Misión completada con éxito!',
+        imageUrl: capturedImagePreview
+      });
+    }
+
+    const updatedHP = Math.min(100, data.user.currentHP + 10);
+
+    updateAppDataAndSync(prev => ({
+      ...prev,
+      xpLedger: [...prev.xpLedger, xpTx],
+      coinsLedger: [...prev.coinsLedger, coinTx],
+      quests: updatedQuests,
+      skillsLedger: updatedSkills,
+      gallery: updatedGallery,
+      user: { ...prev.user, currentHP: updatedHP }
+    }));
+
+    setSelectedQuestForProof(null);
+    setCapturedImageBase64(null);
+    setCapturedImagePreview(null);
+    setProofNote('');
+    setActiveModal(null);
+
+    setRewardModal({
+      title: '🎯 ¡Misión Semanal Cumplida!',
+      subtitle: `Has conquistado "${quest.title}". ¡Recuperaste +10 HP!`,
+      xp: earnedXP,
+      coins: earnedCoins,
+      skill: quest.category
+    });
+  };
+
+  const handleSaveHabit = () => {
+    if (!habitForm.name.trim()) return;
+
+    let derivedXP = 25;
+    let derivedCoins = 12;
+    if (habitForm.difficulty === 'Easy') { derivedXP = 10; derivedCoins = 5; }
+    if (habitForm.difficulty === 'Hard') { derivedXP = 40; derivedCoins = 20; }
+    if (habitForm.difficulty === 'Epic') { derivedXP = 60; derivedCoins = 30; }
+
+    if (editingHabit) {
+      updateAppDataAndSync(prev => ({
+        ...prev,
+        habits: prev.habits.map(h => h.id === editingHabit.id ? {
+          ...h,
+          name: habitForm.name,
+          icon: habitForm.icon || '⚡',
+          category: habitForm.category,
+          difficulty: habitForm.difficulty,
+          xp: derivedXP,
+          coins: derivedCoins,
+          proofRequired: habitForm.proofRequired,
+          linkedToBoss: habitForm.linkedToBoss
+        } : h)
+      }));
+    } else {
+      const newHabit = {
+        id: `h-custom-${Date.now()}`,
+        name: habitForm.name,
+        icon: habitForm.icon || '⚡',
+        category: habitForm.category,
+        difficulty: habitForm.difficulty,
+        xp: derivedXP,
+        coins: derivedCoins,
+        proofRequired: habitForm.proofRequired,
+        linkedToBoss: habitForm.linkedToBoss,
+        streak: 0
+      };
+      updateAppDataAndSync(prev => ({
+        ...prev,
+        habits: [...prev.habits, newHabit]
+      }));
+    }
+
+    setEditingHabit(null);
+    setHabitForm({ name: '', icon: '⚡', category: 'Fitness', difficulty: 'Medium', proofRequired: true, linkedToBoss: true });
+    setActiveModal(null);
+  };
+
+  const handleDeleteHabit = (habitId) => {
+    updateAppDataAndSync(prev => ({
+      ...prev,
+      habits: prev.habits.filter(h => h.id !== habitId)
+    }));
+  };
+
+  const handleSaveEnemy = () => {
+    if (!enemyForm.name.trim()) return;
+
+    if (editingEnemy) {
+      updateAppDataAndSync(prev => ({
+        ...prev,
+        enemies: prev.enemies.map(e => e.id === editingEnemy.id ? {
+          ...e,
+          name: enemyForm.name,
+          icon: enemyForm.icon || '👿',
+          avoidanceCue: enemyForm.avoidanceCue || 'Evitar esta conducta',
+          damage: Number(enemyForm.damage) || 10
+        } : e)
+      }));
+    } else {
+      const newEnemy = {
+        id: `e-custom-${Date.now()}`,
+        name: enemyForm.name,
+        icon: enemyForm.icon || '👿',
+        avoidanceCue: enemyForm.avoidanceCue || 'Evitar esta conducta',
+        damage: Number(enemyForm.damage) || 10
+      };
+      updateAppDataAndSync(prev => ({
+        ...prev,
+        enemies: [...prev.enemies, newEnemy]
+      }));
+    }
+
+    setEditingEnemy(null);
+    setEnemyForm({ name: '', icon: '👿', avoidanceCue: '', damage: 10 });
+    setActiveModal(null);
+  };
+
+  const handleDeleteEnemy = (enemyId) => {
+    updateAppDataAndSync(prev => ({
+      ...prev,
+      enemies: prev.enemies.filter(e => e.id !== enemyId)
+    }));
+  };
+
+  const handleReportEnemy = (enemy) => {
+    const calculatedHP = Math.max(0, data.user.currentHP - enemy.damage);
+    const inRecovery = calculatedHP === 0;
+
+    const dateReports = data.enemyReportsByDate[selectedDate] || [];
+    const updatedDateReports = [...dateReports, enemy.id];
+
+    updateAppDataAndSync(prev => ({
+      ...prev,
+      user: {
+        ...prev.user,
+        currentHP: calculatedHP,
+        recoveryMode: inRecovery
+      },
+      enemyReportsByDate: {
+        ...prev.enemyReportsByDate,
+        [selectedDate]: updatedDateReports
+      }
+    }));
+
+    setActiveModal(null);
+    setRewardModal({
+      type: 'enemy_encounter',
+      title: 'Desliz Registrado',
+      subtitle: `Perdiste -${enemy.damage} HP. Tu nivel y XP se mantienen intactos. ¡Recupérate en tu siguiente hábito!`,
+      inRecovery
+    });
+  };
+
+  const handleSaveBoss = () => {
+    if (!bossForm.name.trim()) return;
+    const target = Number(bossForm.targetMetric) || 10;
+    updateAppDataAndSync(prev => ({
+      ...prev,
+      boss: {
+        ...prev.boss,
+        name: bossForm.name.toUpperCase(),
+        description: bossForm.description || 'Objetivo personal del mes.',
+        targetMetric: target,
+        unit: bossForm.unit || 'sesiones',
+        category: bossForm.category,
+        currentMetric: 0,
+        remainingHP: 100,
+        completed: false
+      }
+    }));
+    setActiveModal(null);
+  };
+
+  const handleSaveReward = () => {
+    if (!rewardForm.name.trim()) return;
+    const cost = Number(rewardForm.cost) || 50;
+
+    if (editingReward) {
+      updateAppDataAndSync(prev => ({
+        ...prev,
+        shopItems: prev.shopItems.map(item => item.id === editingReward.id ? {
+          ...item,
+          name: rewardForm.name,
+          icon: rewardForm.icon || '🎁',
+          cost,
+          desc: rewardForm.desc || 'Premio personalizado'
+        } : item)
+      }));
+    } else {
+      const newRewardItem = {
+        id: `rw-custom-${Date.now()}`,
+        name: rewardForm.name,
+        icon: rewardForm.icon || '🎁',
+        type: 'real',
+        effect: 'Premio Real',
+        cost,
+        desc: rewardForm.desc || 'Premio personalizado',
+        custom: true
+      };
+      updateAppDataAndSync(prev => ({
+        ...prev,
+        shopItems: [...prev.shopItems, newRewardItem]
+      }));
+    }
+
+    setEditingReward(null);
+    setRewardForm({ name: '', icon: '🎁', cost: 100, desc: 'Premio personalizado' });
+    setActiveModal('shop');
+  };
+
+  const handleDeleteReward = (rewardId) => {
+    updateAppDataAndSync(prev => ({
+      ...prev,
+      shopItems: prev.shopItems.filter(item => item.id !== rewardId)
+    }));
+  };
+
+  const handleBuyShopItem = (item) => {
+    if (coinBalance < item.cost) {
+      setRewardModal({
+        title: 'Monedas Insuficientes',
+        subtitle: `Necesitas ${item.cost} Monedas. Tienes ${coinBalance}. ¡Completa más hábitos!`,
+        error: true
+      });
+      return;
+    }
+
+    const coinTx = {
+      id: `spend-${Date.now()}`,
+      amount: -item.cost,
+      type: 'spend',
+      desc: `Compra: ${item.name}`,
+      timestamp: Date.now()
+    };
+
+    let updatedHP = data.user.currentHP;
+    if (item.id === 'item-potion-small') updatedHP = Math.min(100, updatedHP + 10);
+    if (item.id === 'item-potion-big') updatedHP = Math.min(100, updatedHP + 25);
+    if (item.id === 'item-full-heal') updatedHP = 100;
+
+    const updatedAchievements = checkAchievements(data, 0, data.skillsLedger, data.boss, data.gallery, true);
+
+    updateAppDataAndSync(prev => ({
+      ...prev,
+      coinsLedger: [...prev.coinsLedger, coinTx],
+      achievements: updatedAchievements,
+      user: {
+        ...prev.user,
+        currentHP: updatedHP,
+        recoveryMode: updatedHP > 0 ? false : prev.user.recoveryMode
+      }
+    }));
+
+    setRewardModal({
+      title: '¡Compra Exitosa!',
+      subtitle: `Has canjeado "${item.name}". ${item.type === 'game' ? 'Salud recuperada.' : '¡Disfruta tu premio!'}`
+    });
+  };
+
+  const handleResetProgressToZero = () => {
+    updateAppDataAndSync({
+      ...INITIAL_STATE,
+      onboardingCompleted: true,
+      user: {
+        ...INITIAL_STATE.user,
+        name: data.user.name || 'Aventurero'
+      }
+    });
+  };
+
+  const handleFinishOnboarding = () => {
+    const playerName = onboardingName.trim() || 'Aventurero';
+    updateAppDataAndSync(prev => ({
+      ...prev,
+      onboardingCompleted: true,
+      user: {
+        ...prev.user,
+        name: playerName,
+        selectedGoals: onboardingGoals
+      }
+    }));
+  };
+
+  const handleAuthSubmit = () => {
+    setAuthError('');
+    setAuthMessage('');
+    if (!authEmail || !authPassword) {
+      setAuthError('Ingresa un correo electrónico y una contraseña.');
+      return;
+    }
+    setUserAccount({ email: authEmail });
+    setAuthMessage(`¡Cuenta vinculada con éxito como ${authEmail}!`);
+    setTimeout(() => setActiveModal(null), 1200);
+  };
+
+  const playDailyBriefingTTS = async () => {
+    if (isPlayingAudio) {
+      if (audioRef.current) { audioRef.current.pause(); setIsPlayingAudio(false); }
+      return;
+    }
+
+    setAiLoading(true);
+    setAiStatusMessage('Generando voz del Game Master...');
+    try {
+      const apiKey = "";
+      const textPrompt = `Say in a bold Spanish narrator voice: Saludos ${data.user.name}. Estás en el Nivel ${levelInfo.level} con ${data.user.currentHP} puntos de salud. ¡Conquista tus hábitos hoy y gana tu día!`;
+
+      const payload = {
+        contents: [{ parts: [{ text: textPrompt }] }],
+        generationConfig: {
+          responseModalities: ["AUDIO"],
+          speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Fenrir" } } }
+        },
+        model: "gemini-2.5-flash-preview-tts"
+      };
+
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`;
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const result = await response.json();
+      const part = result?.candidates?.[0]?.content?.parts?.[0];
+      const audioData = part?.inlineData?.data;
+      const mimeType = part?.inlineData?.mimeType;
+
+      if (audioData && mimeType) {
+        const sampleRateMatch = mimeType.match(/rate=(\d+)/);
+        const sampleRate = sampleRateMatch ? parseInt(sampleRateMatch[1], 10) : 24000;
+        const pcmData = base64ToArrayBuffer(audioData);
+        const pcm16 = new Int16Array(pcmData);
+        const wavBlob = pcmToWav(pcm16, sampleRate);
+        const audioUrl = URL.createObjectURL(wavBlob);
+
+        if (audioRef.current) {
+          audioRef.current.src = audioUrl;
+          audioRef.current.play();
+          setIsPlayingAudio(true);
+          audioRef.current.onended = () => setIsPlayingAudio(false);
+        }
+      }
+    } catch (err) {
+      console.warn('Error al reproducir voz', err);
+    } finally {
+      setAiLoading(false);
+      setAiStatusMessage('');
+    }
+  };
+
+  if (!data.onboardingCompleted) {
+    return (
+      <div className="flex justify-center items-center min-h-screen bg-neutral-200 font-sans text-neutral-900 p-0 sm:p-4">
+        <div className="w-full max-w-md h-screen sm:h-[840px] bg-neutral-100 sm:rounded-[36px] p-6 flex flex-col justify-between border border-neutral-300 shadow-2xl relative overflow-hidden">
+          
+          <div className="space-y-6 pt-8">
+            <div className="w-16 h-16 rounded-3xl bg-neutral-900 flex items-center justify-center text-white mx-auto text-3xl shadow-xl">
+              🎯
             </div>
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-1 bg-amber-50 px-3 py-1.5 rounded-full border border-amber-200">
-                <span className="text-sm font-bold text-amber-700">🪙 {user.coins}</span>
-              </div>
-              <div className="flex items-center gap-1 bg-rose-50 px-3 py-1.5 rounded-full border border-rose-200">
-                <span className="text-sm font-bold text-rose-600">❤️ {user.hp}/{user.maxHp}</span>
-              </div>
+
+            <div className="text-center space-y-2">
+              <h1 className="text-2xl font-black text-neutral-900 tracking-tight">Bienvenido a Life RPG</h1>
+              <p className="text-xs text-neutral-500 max-w-xs mx-auto">
+                Transforma tus hábitos y metas reales en un sistema de progresión y recompensas.
+              </p>
             </div>
+
+            {onboardingStep === 1 && (
+              <div className="space-y-4 pt-4">
+                <label className="text-[11px] font-extrabold text-neutral-500 uppercase tracking-wider block">
+                  ¿Cómo te gustaría llamar a tu héroe?
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ej: Álex, Aventurero..."
+                  value={onboardingName}
+                  onChange={(e) => setOnboardingName(e.target.value)}
+                  className="w-full bg-white border border-neutral-300 rounded-2xl px-4 py-3.5 text-sm text-neutral-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-neutral-900"
+                />
+                <button
+                  onClick={() => setOnboardingStep(2)}
+                  className="w-full py-4 bg-neutral-900 hover:bg-black text-white font-bold rounded-2xl text-xs uppercase tracking-wider shadow-lg transition"
+                >
+                  Siguiente Paso →
+                </button>
+              </div>
+            )}
+
+            {onboardingStep === 2 && (
+              <div className="space-y-4 pt-2">
+                <label className="text-[11px] font-extrabold text-neutral-500 uppercase tracking-wider block">
+                  ¿Qué áreas quieres mejorar?
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {['Salud & Ejercicio', 'Lectura & Mente', 'Productividad', 'Finanzas', 'Creatividad', 'Aventura'].map((goal) => {
+                    const isSelected = onboardingGoals.includes(goal);
+                    return (
+                      <button
+                        key={goal}
+                        onClick={() => {
+                          if (isSelected) {
+                            setOnboardingGoals(onboardingGoals.filter(g => g !== goal));
+                          } else {
+                            setOnboardingGoals([...onboardingGoals, goal]);
+                          }
+                        }}
+                        className={`p-3.5 rounded-2xl border text-xs text-left font-bold transition-all ${
+                          isSelected ? 'border-neutral-900 bg-neutral-900 text-white shadow' : 'border-neutral-300 bg-white text-neutral-700'
+                        }`}
+                      >
+                        {isSelected ? '✓ ' : '+ '}{goal}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="flex gap-2 pt-3">
+                  <button
+                    onClick={() => setOnboardingStep(1)}
+                    className="py-3 px-4 bg-white border border-neutral-300 text-neutral-700 font-bold rounded-2xl text-xs"
+                  >
+                    Atrás
+                  </button>
+                  <button
+                    onClick={handleFinishOnboarding}
+                    className="flex-1 py-4 bg-[#f94a29] hover:bg-[#e03d1e] text-white font-bold rounded-2xl text-xs uppercase tracking-wider shadow-lg transition"
+                  >
+                    ¡Comenzar en Nivel 1!
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* Main View */}
-          <div className="p-5 space-y-6">
-            {/* Level Card */}
-            <div className="bg-neutral-900 text-white p-5 rounded-3xl shadow-xl space-y-3">
-              <div className="flex justify-between items-center">
-                <span className="text-xs font-bold text-orange-400 uppercase tracking-wider">Nivel actual</span>
-                <span className="text-2xl font-black">NIVEL {user.level}</span>
+          <div className="text-center text-[11px] text-neutral-400 font-mono pb-2">
+            Life RPG • Nivel 1 • 0 XP Inicial
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const dateCompletionsList = data.completionsByDate[selectedDate] || [];
+  const dateEnemyReportsList = data.enemyReportsByDate[selectedDate] || [];
+
+  return (
+    <div className="flex justify-center items-center min-h-screen bg-neutral-200 font-sans text-neutral-900 select-none p-0 sm:p-4">
+      <audio ref={audioRef} className="hidden" />
+
+      <input
+        ref={avatarInputRef}
+        type="file"
+        accept="image/*"
+        onChange={(e) => handleImageFileSelect(e, true)}
+        className="hidden"
+      />
+
+      <div className="relative w-full max-w-md h-screen sm:h-[860px] bg-[#f4f4f6] sm:rounded-[40px] overflow-hidden shadow-2xl flex flex-col border border-neutral-300">
+        
+        {/* Header Bar */}
+        <header className="px-5 pt-4 pb-3 bg-[#f4f4f6]/90 backdrop-blur-md sticky top-0 z-30">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2.5">
+              <button 
+                onClick={() => avatarInputRef.current && avatarInputRef.current.click()}
+                className="w-10 h-10 rounded-full bg-[#f94a29] flex items-center justify-center text-lg text-white shadow-md border-2 border-white overflow-hidden relative group"
+                title="Cambiar Foto de Perfil"
+              >
+                {data.user.customAvatarUrl ? (
+                  <img src={data.user.customAvatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                ) : (
+                  <span>{data.user.avatar}</span>
+                )}
+                <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition">
+                  <Camera className="w-3.5 h-3.5 text-white" />
+                </div>
+              </button>
+
+              <div>
+                <div className="flex items-center gap-1">
+                  <span className="text-xs font-semibold text-neutral-400">Hola,</span>
+                  <span className="text-xs font-black text-neutral-900">{data.user.name}</span>
+                  <button 
+                    onClick={() => { setProfileNameInput(data.user.name); setActiveModal('editProfile'); }}
+                    className="text-neutral-400 hover:text-black ml-1"
+                  >
+                    <Edit3 className="w-3 h-3" />
+                  </button>
+                </div>
+                <div className="flex items-center gap-1.5 text-[10px] font-bold text-neutral-500">
+                  <span>{new Date(selectedDate + 'T12:00:00').toLocaleDateString('es-ES', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+                </div>
               </div>
-              <div className="w-full bg-neutral-800 rounded-full h-3 overflow-hidden p-0.5">
-                <div className="bg-gradient-to-r from-orange-500 to-amber-400 h-full rounded-full transition-all duration-500" style={{ width: `${(user.xp % 100)}%` }}></div>
-              </div>
-              <p className="text-xs text-neutral-400 text-right font-medium">{user.xp % 100} / 100 XP para Nivel {user.level + 1}</p>
             </div>
 
-            {/* Quick Start Box */}
-            <div className="bg-white p-5 rounded-3xl border border-neutral-200 shadow-sm space-y-3">
-              <h2 className="text-base font-bold text-neutral-900">¡Tu aventura ha comenzado! ⚔️</h2>
-              <p className="text-sm text-neutral-600 leading-relaxed">
-                Life RPG está activo y funcionando directamente desde tu navegador o celular.
-              </p>
-              <button 
-                onClick={() => setUser(prev => ({ ...prev, xp: prev.xp + 25, coins: prev.coins + 10 }))} 
-                className="w-full py-3.5 bg-neutral-900 text-white font-bold rounded-2xl active:scale-95 transition-transform flex items-center justify-center gap-2"
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setActiveModal('account')}
+                className={`p-2 rounded-full border transition-all flex items-center gap-1 ${
+                  userAccount 
+                    ? 'bg-emerald-50 text-emerald-600 border-emerald-200' 
+                    : 'bg-white text-neutral-500 border-neutral-200 shadow-sm'
+                }`}
+                title="Cuenta y Nube"
               >
-                ✨ Probar Recompensa (+25 XP)
+                <Cloud className="w-4 h-4" />
+              </button>
+
+              <button
+                onClick={playDailyBriefingTTS}
+                className={`p-2 rounded-full transition-all border ${
+                  isPlayingAudio ? 'bg-[#f94a29] text-white border-[#f94a29] animate-pulse' : 'bg-white text-neutral-700 border-neutral-200 shadow-sm'
+                }`}
+                title="Voz del Game Master"
+              >
+                {isPlayingAudio ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+              </button>
+
+              <button 
+                onClick={() => setActiveModal('shop')}
+                className="flex items-center gap-1 bg-white hover:bg-neutral-50 px-3 py-1.5 rounded-full border border-neutral-200/80 text-neutral-900 font-black text-xs shadow-sm"
+              >
+                <Coins className="w-4 h-4 text-amber-500 fill-amber-500" />
+                <span>{coinBalance}</span>
               </button>
             </div>
           </div>
 
-          {/* Bottom Navigation Bar */}
-          <div className="fixed bottom-4 left-1/2 -translate-x-1/2 w-[90%] max-w-sm bg-neutral-900 text-white p-2 rounded-full shadow-2xl flex justify-around items-center z-50">
-            <button onClick={() => setTab('today')} className={`px-4 py-2 rounded-full text-xs font-bold transition-all ${tab === 'today' ? 'bg-[#f94a29] text-white' : 'text-neutral-400'}`}>Hoy</button>
-            <button onClick={() => setTab('quests')} className={`px-4 py-2 rounded-full text-xs font-bold transition-all ${tab === 'quests' ? 'bg-[#f94a29] text-white' : 'text-neutral-400'}`}>Misiones</button>
-            <button onClick={() => setTab('boss')} className={`px-4 py-2 rounded-full text-xs font-bold transition-all ${tab === 'boss' ? 'bg-[#f94a29] text-white' : 'text-neutral-400'}`}>Jefe</button>
-            <button onClick={() => setTab('profile')} className={`px-4 py-2 rounded-full text-xs font-bold transition-all ${tab === 'profile' ? 'bg-[#f94a29] text-white' : 'text-neutral-400'}`}>Perfil</button>
-          </div>
-        </div>
-      );
-    }
+          {/* Level Progress Summary */}
+          <div className="mt-3.5 p-4 bg-white rounded-3xl border border-neutral-200/80 shadow-sm">
+            <div className="flex items-baseline justify-between">
+              <div>
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-neutral-400 block">Progresión Actual</span>
+                <div className="text-2xl font-black tracking-tight text-neutral-900">
+                  Nivel {levelInfo.level}
+                </div>
+              </div>
+              <div className="text-right">
+                <span className="text-xs font-bold text-neutral-900">{levelInfo.xpIntoCurrentLevel} <span className="text-neutral-400 font-normal">/ {levelInfo.xpNeededForNextLevel} XP</span></span>
+                <div className="text-[10px] font-bold text-[#f94a29] flex items-center justify-end gap-1 mt-0.5">
+                  <Flame className="w-3 h-3 fill-[#f94a29]" /> Racha {data.habits.reduce((max, h) => Math.max(max, h.streak), 0)}d
+                </div>
+              </div>
+            </div>
 
-    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
-  </script>
-</body>
-</html>
+            <div className="w-full bg-neutral-100 h-2.5 rounded-full mt-2.5 overflow-hidden p-0.5">
+              <div 
+                className="bg-[#f94a29] h-full rounded-full transition-all duration-700 ease-out"
+                style={{ width: `${levelInfo.progress * 100}%` }}
+              />
+            </div>
+
+            <div className="flex items-center justify-between text-[11px] mt-2.5 pt-2 border-t border-neutral-100">
+              <div className="flex items-center gap-1.5 font-bold text-neutral-700">
+                <Heart className="w-3.5 h-3.5 fill-red-500 text-red-500" />
+                <span>Salud {data.user.currentHP} / {data.user.maxHP} HP</span>
+              </div>
+              <span className="text-[10px] font-bold text-neutral-400 font-mono">
+                {Math.round((data.user.currentHP / data.user.maxHP) * 100)}%
+              </span>
+            </div>
+          </div>
+
+          {/* Date Picker Strip */}
+          {activeTab === 'today' && (
+            <div className="flex items-center justify-between gap-1 mt-3">
+              {weekDays.map((item) => {
+                const isSelected = selectedDate === item.dateStr;
+                return (
+                  <button
+                    key={item.dateStr}
+                    onClick={() => setSelectedDate(item.dateStr)}
+                    className={`flex-1 py-2 rounded-2xl flex flex-col items-center justify-center transition-all ${
+                      isSelected 
+                        ? 'bg-neutral-900 text-white shadow-md font-bold' 
+                        : 'bg-white text-neutral-600 border border-neutral-200/60 hover:bg-neutral-50'
+                    }`}
+                  >
+                    <span className="text-[9px] uppercase font-bold opacity-70">{item.dayName}</span>
+                    <span className="text-xs font-black mt-0.5">{item.dayNum}</span>
+                    {isSelected && <div className="w-1 h-1 rounded-full bg-[#f94a29] mt-1" />}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </header>
+
+        {aiLoading && (
+          <div className="bg-neutral-900 text-white px-4 py-2 flex items-center justify-center gap-2 text-xs font-bold animate-pulse z-20">
+            <Loader2 className="w-3.5 h-3.5 animate-spin text-[#f94a29]" />
+            <span>{aiStatusMessage}</span>
+          </div>
+        )}
+
+        <main className="flex-1 overflow-y-auto px-5 py-3 space-y-4 scrollbar-none pb-28">
+          
+          {/* TAB 1: TODAY */}
+          {activeTab === 'today' && (
+            <div className="space-y-4">
+              
+              {/* Habits Section */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h2 className="text-xs font-extrabold uppercase tracking-wider text-neutral-400 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-neutral-900" />
+                    Hábitos ({selectedDate === getTodayDateStr() ? 'Hoy' : selectedDate})
+                  </h2>
+                  <button 
+                    onClick={() => { 
+                      setEditingHabit(null); 
+                      setHabitForm({ name: '', icon: '⚡', category: 'Fitness', difficulty: 'Medium', proofRequired: true, linkedToBoss: true }); 
+                      setActiveModal('addHabit'); 
+                    }}
+                    className="text-xs font-bold text-neutral-900 hover:text-[#f94a29] flex items-center gap-1 bg-white px-2.5 py-1 rounded-full border border-neutral-200 shadow-sm"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Crear
+                  </button>
+                </div>
+
+                {data.habits.length === 0 ? (
+                  <div className="p-6 text-center rounded-3xl bg-white border border-neutral-200/80 text-neutral-500 space-y-2 shadow-sm">
+                    <p className="text-xs font-medium">No tienes hábitos configurados.</p>
+                    <button 
+                      onClick={() => { setEditingHabit(null); setActiveModal('addHabit'); }}
+                      className="px-4 py-2 bg-neutral-900 text-white text-xs font-bold rounded-full"
+                    >
+                      + Crear Primer Hábito
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2.5">
+                    {data.habits.map((habit) => {
+                      const isCompletedOnDate = dateCompletionsList.includes(habit.id);
+
+                      return (
+                        <div 
+                          key={habit.id}
+                          className={`p-3.5 rounded-3xl border transition-all ${
+                            isCompletedOnDate 
+                              ? 'bg-white/60 border-neutral-200 opacity-60' 
+                              : 'bg-white border-neutral-200/80 shadow-sm hover:border-neutral-300'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-3">
+                              <div className="w-11 h-11 rounded-2xl bg-neutral-100 flex items-center justify-center text-xl border border-neutral-200">
+                                {habit.icon}
+                              </div>
+                              <div>
+                                <div className="flex items-center gap-1.5">
+                                  <h3 className={`text-sm font-bold ${isCompletedOnDate ? 'line-through text-neutral-400' : 'text-neutral-900'}`}>
+                                    {habit.name}
+                                  </h3>
+                                  {habit.linkedToBoss && (
+                                    <span className="text-[10px] bg-red-50 text-red-600 px-1.5 py-0.5 rounded-md font-extrabold border border-red-100 flex items-center gap-0.5">
+                                      <Swords className="w-2.5 h-2.5" /> Boss
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-2 mt-0.5 text-xs">
+                                  <span className="text-[#f94a29] font-bold">+{habit.xp} XP</span>
+                                  <span className="text-amber-500 font-bold">+{habit.coins} Monedas</span>
+                                  <span className="text-neutral-400 font-medium">• 🔥 {habit.streak}d</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => {
+                                  setEditingHabit(habit);
+                                  setHabitForm({
+                                    name: habit.name,
+                                    icon: habit.icon,
+                                    category: habit.category || 'Fitness',
+                                    difficulty: habit.difficulty || 'Medium',
+                                    proofRequired: habit.proofRequired,
+                                    linkedToBoss: habit.linkedToBoss !== undefined ? habit.linkedToBoss : true
+                                  });
+                                  setActiveModal('addHabit');
+                                }}
+                                className="p-1.5 text-neutral-400 hover:text-neutral-900"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+
+                              <button
+                                onClick={() => handleDeleteHabit(habit.id)}
+                                className="p-1.5 text-neutral-400 hover:text-red-500"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+
+                              {isCompletedOnDate ? (
+                                <div className="flex items-center gap-1 text-emerald-600 text-xs font-bold px-3 py-1.5 rounded-full bg-emerald-50 border border-emerald-200">
+                                  <Check className="w-4 h-4" />
+                                  <span>Hecho</span>
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => {
+                                    setSelectedHabitForProof(habit);
+                                    setCapturedImagePreview(null);
+                                    setCapturedImageBase64(null);
+                                    setActiveModal('proof');
+                                  }}
+                                  className="bg-[#f94a29] hover:bg-[#e03d1e] text-white font-bold text-xs px-3.5 py-2 rounded-full shadow-md flex items-center gap-1 transition"
+                                >
+                                  <Camera className="w-3.5 h-3.5" />
+                                  <span>Verificar</span>
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Bad Habits / Enemies Section */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h2 className="text-xs font-extrabold uppercase tracking-wider text-neutral-400 flex items-center gap-1.5">
+                    <ShieldAlert className="w-3.5 h-3.5 text-red-500" />
+                    Castigos & Malos Hábitos
+                  </h2>
+                  <button 
+                    onClick={() => { 
+                      setEditingEnemy(null); 
+                      setEnemyForm({ name: '', icon: '👿', avoidanceCue: '', damage: 10 }); 
+                      setActiveModal('addEnemy'); 
+                    }}
+                    className="text-xs font-bold text-red-600 hover:text-red-700 flex items-center gap-1 bg-red-50 px-2.5 py-1 rounded-full border border-red-200"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Agregar
+                  </button>
+                </div>
+
+                {data.enemies.length === 0 ? (
+                  <div className="p-4 text-center rounded-3xl bg-white border border-neutral-200 text-neutral-400 text-xs">
+                    No tienes castigos configurados.
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {data.enemies.map((enemy) => {
+                      const isReportedOnDate = dateEnemyReportsList.includes(enemy.id);
+
+                      return (
+                        <div key={enemy.id} className="p-3.5 rounded-3xl bg-white border border-neutral-200/80 shadow-sm space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-3">
+                              <div className="w-9 h-9 rounded-2xl bg-red-50 border border-red-100 flex items-center justify-center text-lg">
+                                {enemy.icon}
+                              </div>
+                              <div>
+                                <h3 className="text-xs font-bold text-neutral-900">{enemy.name}</h3>
+                                <p className="text-[11px] text-neutral-500">{enemy.avoidanceCue}</p>
+                              </div>
+                            </div>
+                            
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs font-black text-red-600 bg-red-50 px-2 py-0.5 rounded-full border border-red-100">
+                                -{enemy.damage} HP
+                              </span>
+                              <button 
+                                onClick={() => {
+                                  setEditingEnemy(enemy);
+                                  setEnemyForm({
+                                    name: enemy.name,
+                                    icon: enemy.icon,
+                                    avoidanceCue: enemy.avoidanceCue,
+                                    damage: enemy.damage
+                                  });
+                                  setActiveModal('addEnemy');
+                                }} 
+                                className="text-neutral-400 hover:text-neutral-900 p-1"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+                              <button onClick={() => handleDeleteEnemy(enemy.id)} className="text-neutral-400 hover:text-red-500 p-1">
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-end gap-2 pt-1 border-t border-neutral-100">
+                            {isReportedOnDate ? (
+                              <span className="text-[11px] font-bold text-red-500">Desliz registrado en esta fecha</span>
+                            ) : (
+                              <button
+                                onClick={() => handleReportEnemy(enemy)}
+                                className="text-[11px] font-bold text-red-600 hover:bg-red-50 px-3 py-1 rounded-full border border-red-200 transition"
+                              >
+                                Registrar Desliz (-{enemy.damage} HP)
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: QUESTS */}
+          {activeTab === 'quests' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-base font-black text-neutral-900">Misiones Semanales</h2>
+                  <p className="text-xs text-neutral-500">Desafíos para salir de tu zona de confort.</p>
+                </div>
+                <button
+                  onClick={generateQuestsWithGeminiAI}
+                  disabled={aiLoading}
+                  className="px-3.5 py-1.5 bg-[#f94a29] text-white rounded-full text-xs font-bold flex items-center gap-1 shadow-sm hover:bg-[#e03d1e] transition"
+                >
+                  <Wand2 className="w-3.5 h-3.5" /> IA QuestForge
+                </button>
+              </div>
+
+              {data.quests.length === 0 ? (
+                <div className="p-6 text-center rounded-3xl bg-white border border-neutral-200/80 text-neutral-500 space-y-3 shadow-sm">
+                  <Compass className="w-8 h-8 text-neutral-300 mx-auto" />
+                  <p className="text-xs font-medium">No tienes misiones activas.</p>
+                  <button
+                    onClick={generateQuestsWithGeminiAI}
+                    className="px-4 py-2 bg-neutral-900 text-white font-bold text-xs rounded-full shadow"
+                  >
+                    + Generar Misión con IA
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {data.quests.map((quest) => {
+                    const isCompleted = quest.status === 'completed';
+
+                    return (
+                      <div key={quest.id} className={`p-4 rounded-3xl border transition-all ${isCompleted ? 'bg-white/60 border-neutral-200 opacity-60' : 'bg-white border-neutral-200/80 shadow-sm'}`}>
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <h3 className={`text-sm font-bold ${isCompleted ? 'line-through text-neutral-400' : 'text-neutral-900'}`}>
+                              {quest.title}
+                            </h3>
+                            <span className="inline-block mt-1 text-[10px] font-bold px-2.5 py-0.5 bg-neutral-100 text-neutral-800 rounded-full border border-neutral-200">
+                              {quest.category} • {quest.difficulty}
+                            </span>
+                          </div>
+
+                          {isCompleted ? (
+                            <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200 flex items-center gap-1">
+                              <Check className="w-3.5 h-3.5" /> Completada
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                setSelectedQuestForProof(quest);
+                                setCapturedImagePreview(null);
+                                setCapturedImageBase64(null);
+                                setActiveModal('questProof');
+                              }}
+                              className="bg-neutral-900 hover:bg-black text-white font-bold text-xs px-3.5 py-1.5 rounded-full shadow flex items-center gap-1"
+                            >
+                              <Camera className="w-3.5 h-3.5 text-[#f94a29]" />
+                              <span>Completar</span>
+                            </button>
+                          )}
+                        </div>
+
+                        <p className="text-xs text-neutral-600 mt-2">{quest.description}</p>
+                        
+                        <div className="flex items-center justify-between text-xs pt-2.5 mt-2 border-t border-neutral-100">
+                          <span className="text-[#f94a29] font-bold">+{quest.xp} XP</span>
+                          <span className="text-amber-500 font-bold">+{quest.coins} Monedas</span>
+                          <span className="text-emerald-600 font-bold">+10 HP al completar</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB 3: BOSS */}
+          {activeTab === 'boss' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-base font-black text-neutral-900">Jefe del Mes</h2>
+                  <p className="text-xs text-neutral-500">Derrótalo completando tus hábitos vinculados.</p>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={generateBossWithGeminiAI}
+                    disabled={aiLoading}
+                    className="px-3 py-1.5 bg-[#f94a29] text-white rounded-full text-xs font-bold flex items-center gap-1 shadow-sm hover:bg-[#e03d1e] transition"
+                  >
+                    <Wand2 className="w-3.5 h-3.5" /> IA Boss
+                  </button>
+                  <button
+                    onClick={() => {
+                      setBossForm({
+                        name: data.boss.name,
+                        description: data.boss.description,
+                        targetMetric: data.boss.targetMetric,
+                        unit: data.boss.unit,
+                        category: data.boss.category
+                      });
+                      setActiveModal('editBoss');
+                    }}
+                    className="px-3 py-1.5 bg-white border border-neutral-200 text-neutral-900 rounded-full text-xs font-bold flex items-center gap-1 shadow-sm"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-5 rounded-3xl bg-white border border-neutral-200/80 shadow-sm text-center space-y-4">
+                <div className="w-16 h-16 rounded-3xl bg-neutral-900 text-white mx-auto flex items-center justify-center text-3xl shadow-md">
+                  {data.boss.completed ? '🏆' : '👹'}
+                </div>
+                <div>
+                  <h2 className="text-sm font-black text-neutral-900 uppercase tracking-wide">{data.boss.name}</h2>
+                  <p className="text-xs text-neutral-500 mt-1">{data.boss.description}</p>
+                </div>
+
+                <div className="bg-neutral-50 p-4 rounded-2xl border border-neutral-200/60 space-y-2.5">
+                  <div className="flex justify-between text-xs font-bold text-neutral-700">
+                    <span className="flex items-center gap-1">
+                      <Swords className="w-3.5 h-3.5 text-[#f94a29]" /> Vida del Jefe
+                    </span>
+                    <span className="font-mono">{data.boss.remainingHP}% HP Restante</span>
+                  </div>
+
+                  <div className="w-full bg-neutral-200 h-2.5 rounded-full overflow-hidden">
+                    <div 
+                      className={`h-full rounded-full transition-all duration-500 ${data.boss.completed ? 'bg-emerald-500' : 'bg-[#f94a29]'}`}
+                      style={{ width: `${data.boss.remainingHP}%` }}
+                    />
+                  </div>
+
+                  <div className="flex justify-between items-center text-xs text-neutral-500 pt-1">
+                    <span>Progreso cuantitativo:</span>
+                    <span className="font-bold text-neutral-900">
+                      {data.boss.currentMetric} / {data.boss.targetMetric} {data.boss.unit}
+                    </span>
+                  </div>
+                </div>
+
+                {data.boss.completed ? (
+                  <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-2xl text-emerald-700 text-xs font-bold">
+                    🎉 ¡Jefe Derrotado! Has alcanzado tu gran meta del mes.
+                  </div>
+                ) : (
+                  <div className="p-3 bg-neutral-100 rounded-2xl text-neutral-600 text-xs space-y-1 text-left">
+                    <p className="font-bold text-neutral-900 flex items-center gap-1">
+                      <Globe className="w-3.5 h-3.5 text-[#f94a29]" /> ¿Cómo infligir daño a este Jefe?
+                    </p>
+                    <p className="text-[11px] leading-relaxed">
+                      Completa tus hábitos diarios de la categoría <strong className="text-neutral-900">{data.boss.category}</strong> o hábitos marcados como "Vinculados al Boss". ¡Cada hábito completado reduce automáticamente la vida del Jefe!
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 4: GALLERY */}
+          {activeTab === 'journey' && (
+            <div className="space-y-4">
+              <h2 className="text-base font-black text-neutral-900">Galería de Pruebas Reales</h2>
+              {data.gallery.length === 0 ? (
+                <div className="p-6 text-center rounded-3xl bg-white border border-neutral-200/80 text-neutral-400 text-xs space-y-2 shadow-sm">
+                  <Camera className="w-8 h-8 text-neutral-300 mx-auto" />
+                  <p>Aún no has guardado capturas de prueba. Completa hábitos o misiones subiendo tu foto para verlas aquí.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  {data.gallery.map((item) => (
+                    <div key={item.id} className="rounded-3xl overflow-hidden bg-white border border-neutral-200/80 shadow-sm">
+                      <div className="w-full h-32 bg-neutral-100 overflow-hidden relative">
+                        <img src={item.imageUrl} alt={item.title} className="w-full h-full object-cover" />
+                        <span className="absolute top-2 right-2 bg-neutral-900/80 text-white text-[9px] font-bold px-2 py-0.5 rounded-full backdrop-blur-xs">
+                          +{item.xp} XP
+                        </span>
+                      </div>
+                      <div className="p-3 space-y-1">
+                        <span className="text-[9px] font-bold text-[#f94a29] uppercase">{item.sourceType} • {item.date}</span>
+                        <h4 className="text-xs font-bold text-neutral-900 truncate">{item.title}</h4>
+                        {item.note && <p className="text-[10px] text-neutral-500 line-clamp-2 italic">"{item.note}"</p>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB 5: PROFILE */}
+          {activeTab === 'profile' && (
+            <div className="space-y-4">
+              
+              <div className="p-4 rounded-3xl bg-white border border-neutral-200/80 shadow-sm flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <button 
+                    onClick={() => avatarInputRef.current && avatarInputRef.current.click()}
+                    className="w-12 h-12 rounded-full bg-[#f94a29] flex items-center justify-center text-2xl text-white shadow-md overflow-hidden relative group"
+                  >
+                    {data.user.customAvatarUrl ? (
+                      <img src={data.user.customAvatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                    ) : (
+                      <span>{data.user.avatar}</span>
+                    )}
+                    <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition">
+                      <Camera className="w-4 h-4 text-white" />
+                    </div>
+                  </button>
+                  <div>
+                    <h2 className="text-base font-black text-neutral-900">{data.user.name}</h2>
+                    <p className="text-xs text-neutral-500">Nivel {levelInfo.level} • {lifetimeXP} XP Totales</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => { setProfileNameInput(data.user.name); setActiveModal('editProfile'); }}
+                  className="px-3 py-1.5 bg-neutral-100 hover:bg-neutral-200 text-neutral-900 rounded-full text-xs font-bold flex items-center gap-1"
+                >
+                  <Edit3 className="w-3.5 h-3.5" /> Editar
+                </button>
+              </div>
+
+              {/* Skill XP Vertical Bar Chart */}
+              <div className="p-5 rounded-3xl bg-white border border-neutral-200/80 shadow-sm space-y-4">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-neutral-400 block">Distribución de Habilidades</span>
+                    <h3 className="text-xs font-black text-neutral-900">Puntos de Experiencia (XP)</h3>
+                  </div>
+                  <span className="text-[11px] font-bold text-[#f94a29] bg-orange-50 px-2.5 py-0.5 rounded-full border border-orange-100">
+                    6 Categorías
+                  </span>
+                </div>
+
+                <div className="flex items-end justify-between gap-2 h-36 pt-4 px-2 border-b border-neutral-100">
+                  {[
+                    { key: 'Fitness', label: 'Salud', color: 'bg-[#f94a29]' },
+                    { key: 'Conocimiento', label: 'Mente', color: 'bg-neutral-900' },
+                    { key: 'Creatividad', label: 'Arte', color: 'bg-[#f94a29]' },
+                    { key: 'Finanzas', label: 'Dinero', color: 'bg-neutral-900' },
+                    { key: 'Aventura', label: 'Salidas', color: 'bg-[#f94a29]' },
+                    { key: 'Social', label: 'Social', color: 'bg-neutral-800' }
+                  ].map((skill) => {
+                    const xp = data.skillsLedger[skill.key] || 0;
+                    const maxXPInSkills = Math.max(...Object.values(data.skillsLedger), 100);
+                    const barHeightPercent = Math.max(15, Math.min(100, (xp / maxXPInSkills) * 100));
+
+                    return (
+                      <div key={skill.key} className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end">
+                        <span className="text-[9px] font-extrabold text-neutral-900 font-mono">{xp} XP</span>
+                        <div 
+                          className={`w-full rounded-2xl transition-all duration-700 ${skill.color}`}
+                          style={{ height: `${barHeightPercent}%` }}
+                        />
+                        <span className="text-[9px] font-bold text-neutral-400 truncate w-full text-center">{skill.label}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="text-[10px] text-neutral-400 text-center font-medium">
+                  Completa hábitos para incrementar tu experiencia en cada área.
+                </div>
+              </div>
+
+              {/* Achievements Grid */}
+              <div className="p-4 rounded-3xl bg-white border border-neutral-200/80 shadow-sm space-y-3">
+                <h3 className="text-xs font-extrabold uppercase tracking-wider text-neutral-400">Logros a Conseguir</h3>
+                <div className="grid grid-cols-3 gap-2">
+                  {data.achievements.map((ach) => (
+                    <div 
+                      key={ach.id} 
+                      className={`p-2.5 rounded-2xl border text-center space-y-1 transition-all ${
+                        ach.unlocked ? 'bg-orange-50 border-orange-200 text-neutral-900 shadow-sm' : 'bg-neutral-50 border-neutral-200 opacity-40'
+                      }`}
+                    >
+                      <div className="text-2xl">{ach.icon}</div>
+                      <div className="text-[10px] font-extrabold truncate">{ach.title}</div>
+                      <div className="text-[8px] text-neutral-500 leading-tight">{ach.desc}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Reset Progress Button */}
+              <div className="p-4 rounded-3xl bg-white border border-neutral-200/80 shadow-sm space-y-2">
+                <h3 className="text-xs font-extrabold uppercase tracking-wider text-neutral-400">Progreso</h3>
+                <button
+                  onClick={handleResetProgressToZero}
+                  className="w-full py-3 bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 font-bold rounded-2xl text-xs flex items-center justify-center gap-2"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" /> Reiniciar Progreso a Nivel 1 (0 XP)
+                </button>
+              </div>
+            </div>
+          )}
+        </main>
+
+        {/* Bottom Navigation Dock */}
+        <div className="absolute bottom-4 left-0 right-0 px-6 z-30 pointer-events-none">
+          <nav className="pointer-events-auto bg-neutral-900 text-white rounded-full p-2 shadow-2xl flex items-center justify-around border border-neutral-800">
+            {[
+              { id: 'today', label: 'Hoy', icon: CheckCircle2 },
+              { id: 'quests', label: 'Misiones', icon: Compass },
+              { id: 'boss', label: 'Jefe', icon: Crosshair },
+              { id: 'journey', label: 'Galería', icon: History },
+              { id: 'profile', label: 'Perfil', icon: User }
+            ].map((tab) => {
+              const Icon = tab.icon;
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-bold transition-all ${
+                    isActive ? 'bg-white text-neutral-900 shadow-md' : 'text-neutral-400 hover:text-white'
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
+                  {isActive && <span>{tab.label}</span>}
+                </button>
+              );
+            })}
+          </nav>
+        </div>
+
+        {/* MODAL: ACCOUNT / CLOUD SYNC */}
+        {activeModal === 'account' && (
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="w-full max-w-sm bg-white rounded-3xl border border-neutral-200 p-5 space-y-4 shadow-2xl">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-neutral-900 flex items-center gap-1.5">
+                  <Cloud className="w-4 h-4 text-[#f94a29]" />
+                  Cuenta y Sincronización
+                </h3>
+                <button onClick={() => setActiveModal(null)} className="text-neutral-400 hover:text-black">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="bg-neutral-50 p-3 rounded-2xl border border-neutral-200/80 text-xs space-y-1">
+                <div className="flex justify-between items-center font-bold">
+                  <span>Estado actual:</span>
+                  <span className={userAccount ? 'text-emerald-600' : 'text-amber-600'}>
+                    {userAccount ? 'Sincronizado' : 'Modo Invitado Local'}
+                  </span>
+                </div>
+                {userAccount && (
+                  <p className="text-[11px] text-neutral-500 truncate">Correo: {userAccount.email}</p>
+                )}
+              </div>
+
+              {userAccount ? (
+                <div className="space-y-3">
+                  <div className="p-3 bg-emerald-50 rounded-2xl border border-emerald-200 text-[11px] text-emerald-800 space-y-1">
+                    <p className="font-bold flex items-center gap-1">
+                      <Check className="w-3.5 h-3.5" /> ¡Tu avance está respaldado!
+                    </p>
+                    <p>Todos tus hábitos e historial se guardan automáticamente.</p>
+                  </div>
+                  <button
+                    onClick={() => setUserAccount(null)}
+                    className="w-full py-3 bg-neutral-100 hover:bg-neutral-200 text-neutral-700 font-bold rounded-2xl text-xs flex items-center justify-center gap-2 border border-neutral-200"
+                  >
+                    <LogOut className="w-4 h-4 text-neutral-500" />
+                    Cerrar Sesión
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex rounded-2xl bg-neutral-100 p-1">
+                    <button
+                      onClick={() => { setAuthMode('login'); setAuthError(''); setAuthMessage(''); }}
+                      className={`flex-1 py-1.5 text-xs font-bold rounded-xl transition ${authMode === 'login' ? 'bg-white shadow text-neutral-900' : 'text-neutral-500'}`}
+                    >
+                      Iniciar Sesión
+                    </button>
+                    <button
+                      onClick={() => { setAuthMode('signup'); setAuthError(''); setAuthMessage(''); }}
+                      className={`flex-1 py-1.5 text-xs font-bold rounded-xl transition ${authMode === 'signup' ? 'bg-white shadow text-neutral-900' : 'text-neutral-500'}`}
+                    >
+                      Crear Cuenta
+                    </button>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div>
+                      <label className="text-[10px] font-bold text-neutral-400 uppercase">Correo Electrónico</label>
+                      <input
+                        type="email"
+                        placeholder="tu-correo@ejemplo.com"
+                        value={authEmail}
+                        onChange={(e) => setAuthEmail(e.target.value)}
+                        className="w-full bg-neutral-50 border border-neutral-200 rounded-2xl px-3 py-2.5 text-xs text-neutral-900 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-neutral-400 uppercase">Contraseña</label>
+                      <input
+                        type="password"
+                        placeholder="••••••••"
+                        value={authPassword}
+                        onChange={(e) => setAuthPassword(e.target.value)}
+                        className="w-full bg-neutral-50 border border-neutral-200 rounded-2xl px-3 py-2.5 text-xs text-neutral-900 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  {authError && <p className="text-[11px] text-red-600 font-medium">{authError}</p>}
+                  {authMessage && <p className="text-[11px] text-emerald-600 font-medium">{authMessage}</p>}
+
+                  <button
+                    onClick={handleAuthSubmit}
+                    className="w-full py-3 bg-neutral-900 hover:bg-black text-white font-bold rounded-2xl text-xs flex items-center justify-center gap-2 shadow-lg"
+                  >
+                    {authMode === 'signup' ? <UserPlus className="w-4 h-4 text-[#f94a29]" /> : <LogIn className="w-4 h-4 text-[#f94a29]" />}
+                    <span>{authMode === 'signup' ? ' Registrarme' : ' Iniciar Sesión'}</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* MODAL: PROOF VERIFICATION */}
+        {activeModal === 'proof' && selectedHabitForProof && (
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="w-full max-w-sm bg-white rounded-3xl border border-neutral-200 p-5 space-y-4 shadow-2xl">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-neutral-900 flex items-center gap-1.5">
+                  <Camera className="w-4 h-4 text-[#f94a29]" />
+                  Capturar Prueba de Hábito
+                </h3>
+                <button onClick={() => setActiveModal(null)} className="text-neutral-400 hover:text-black">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <input
+                ref={cameraInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={(e) => handleImageFileSelect(e, false)}
+                className="hidden"
+              />
+              <input
+                ref={galleryInputRef}
+                type="file"
+                accept="image/*"
+                onChange={(e) => handleImageFileSelect(e, false)}
+                className="hidden"
+              />
+
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => cameraInputRef.current && cameraInputRef.current.click()}
+                  className="py-3 bg-neutral-100 hover:bg-neutral-200 text-neutral-900 font-bold text-xs rounded-2xl flex items-center justify-center gap-1.5 border border-neutral-200"
+                >
+                  <Camera className="w-4 h-4 text-[#f94a29]" />
+                  Tomar Foto
+                </button>
+
+                <button
+                  onClick={() => galleryInputRef.current && galleryInputRef.current.click()}
+                  className="py-3 bg-neutral-100 hover:bg-neutral-200 text-neutral-900 font-bold text-xs rounded-2xl flex items-center justify-center gap-1.5 border border-neutral-200"
+                >
+                  <ImageIcon className="w-4 h-4 text-[#f94a29]" />
+                  Elegir Galería
+                </button>
+              </div>
+
+              {capturedImagePreview ? (
+                <div className="w-full h-44 rounded-2xl overflow-hidden border border-neutral-300 relative shadow-inner">
+                  <img src={capturedImagePreview} alt="Preview" className="w-full h-full object-cover" />
+                  <span className="absolute bottom-2 left-2 bg-neutral-900 text-white text-[10px] px-2 py-0.5 rounded-full font-bold">
+                    Imagen lista para Gemini Vision
+                  </span>
+                </div>
+              ) : (
+                <div className="w-full h-28 rounded-2xl border-2 border-dashed border-neutral-200 flex flex-col items-center justify-center text-neutral-400 text-xs">
+                  <p>Toma o selecciona una foto de tu hábito.</p>
+                </div>
+              )}
+
+              <input
+                type="text"
+                placeholder="Añadir nota opcional..."
+                value={proofNote}
+                onChange={(e) => setProofNote(e.target.value)}
+                className="w-full bg-neutral-50 border border-neutral-200 rounded-2xl px-3 py-2 text-xs text-neutral-900 focus:outline-none"
+              />
+
+              <button
+                disabled={aiLoading}
+                onClick={handleVerifyHabit}
+                className="w-full py-3.5 bg-neutral-900 hover:bg-black text-white font-bold rounded-2xl text-xs flex items-center justify-center gap-2 shadow-lg"
+              >
+                {aiLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4 text-[#f94a29]" />}
+                <span>Analizar con Gemini Vision & Ganar XP</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL: QUEST PROOF */}
+        {activeModal === 'questProof' && selectedQuestForProof && (
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="w-full max-w-sm bg-white rounded-3xl border border-neutral-200 p-5 space-y-4 shadow-2xl">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-neutral-900 flex items-center gap-1.5">
+                  <Compass className="w-4 h-4 text-[#f94a29]" />
+                  Completar Misión Semanal
+                </h3>
+                <button onClick={() => setActiveModal(null)} className="text-neutral-400 hover:text-black">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <p className="text-xs text-neutral-600">
+                Adjunta una foto o captura de tu logro para guardarla en tu galería de recuerdos.
+              </p>
+
+              <input
+                ref={cameraInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={(e) => handleImageFileSelect(e, false)}
+                className="hidden"
+              />
+              <input
+                ref={galleryInputRef}
+                type="file"
+                accept="image/*"
+                onChange={(e) => handleImageFileSelect(e, false)}
+                className="hidden"
+              />
+
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => cameraInputRef.current && cameraInputRef.current.click()}
+                  className="py-3 bg-neutral-100 hover:bg-neutral-200 text-neutral-900 font-bold text-xs rounded-2xl flex items-center justify-center gap-1.5 border border-neutral-200"
+                >
+                  <Camera className="w-4 h-4 text-[#f94a29]" />
+                  Tomar Foto
+                </button>
+
+                <button
+                  onClick={() => galleryInputRef.current && galleryInputRef.current.click()}
+                  className="py-3 bg-neutral-100 hover:bg-neutral-200 text-neutral-900 font-bold text-xs rounded-2xl flex items-center justify-center gap-1.5 border border-neutral-200"
+                >
+                  <ImageIcon className="w-4 h-4 text-[#f94a29]" />
+                  Elegir Galería
+                </button>
+              </div>
+
+              {capturedImagePreview ? (
+                <div className="w-full h-44 rounded-2xl overflow-hidden border border-neutral-300 relative shadow-inner">
+                  <img src={capturedImagePreview} alt="Preview" className="w-full h-full object-cover" />
+                </div>
+              ) : (
+                <div className="w-full h-24 rounded-2xl border-2 border-dashed border-neutral-200 flex items-center justify-center text-neutral-400 text-xs">
+                  Subida opcional de imagen
+                </div>
+              )}
+
+              <input
+                type="text"
+                placeholder="Añadir nota o recuerdo de tu misión..."
+                value={proofNote}
+                onChange={(e) => setProofNote(e.target.value)}
+                className="w-full bg-neutral-50 border border-neutral-200 rounded-2xl px-3 py-2 text-xs text-neutral-900 focus:outline-none"
+              />
+
+              <button
+                onClick={handleVerifyQuest}
+                className="w-full py-3.5 bg-neutral-900 hover:bg-black text-white font-bold rounded-2xl text-xs flex items-center justify-center gap-2 shadow-lg"
+              >
+                <Check className="w-4 h-4 text-emerald-400" />
+                <span>Confirmar y Reclamar Recompensa</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL: SHOP */}
+        {activeModal === 'shop' && (
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="w-full max-w-sm max-h-[85vh] bg-white rounded-3xl border border-neutral-200 p-5 space-y-4 flex flex-col shadow-2xl">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-neutral-900 flex items-center gap-1.5">
+                  <ShoppingBag className="w-4 h-4 text-[#f94a29]" />
+                  Tienda de Recompensas
+                </h3>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-neutral-900 flex items-center gap-1">
+                    <Coins className="w-3.5 h-3.5 fill-amber-500 text-amber-500" /> {coinBalance}
+                  </span>
+                  <button onClick={() => setActiveModal(null)} className="text-neutral-400 hover:text-black">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-extrabold uppercase text-neutral-400">Objetos & Premios</span>
+                <button
+                  onClick={() => {
+                    setEditingReward(null);
+                    setRewardForm({ name: '', icon: '🎁', cost: 100, desc: 'Premio personalizado' });
+                    setActiveModal('addReward');
+                  }}
+                  className="text-xs font-bold text-[#f94a29] hover:underline flex items-center gap-1"
+                >
+                  <Plus className="w-3.5 h-3.5" /> + Crear Premio
+                </button>
+              </div>
+
+              <div className="overflow-y-auto space-y-2.5 pr-1 scrollbar-none flex-1">
+                {data.shopItems.map((item) => (
+                  <div key={item.id} className="p-3 bg-neutral-50 rounded-2xl border border-neutral-200/80 flex items-center justify-between">
+                    <div className="flex items-center space-x-2.5">
+                      <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center text-xl border border-neutral-200 shadow-sm">
+                        {item.icon}
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-bold text-neutral-900">{item.name}</h4>
+                        <p className="text-[10px] text-neutral-500">{item.desc}</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1">
+                      {item.custom && (
+                        <>
+                          <button
+                            onClick={() => {
+                              setEditingReward(item);
+                              setRewardForm({
+                                name: item.name,
+                                icon: item.icon,
+                                cost: item.cost,
+                                desc: item.desc || ''
+                              });
+                              setActiveModal('addReward');
+                            }}
+                            className="p-1 text-neutral-400 hover:text-neutral-900"
+                            title="Editar Recompensa"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteReward(item.id)}
+                            className="p-1 text-neutral-400 hover:text-red-500"
+                            title="Eliminar Recompensa"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </>
+                      )}
+
+                      <button
+                        onClick={() => handleBuyShopItem(item)}
+                        className="px-3 py-1.5 bg-neutral-900 hover:bg-black text-white font-bold text-xs rounded-full flex items-center gap-1 shadow-sm"
+                      >
+                        <Coins className="w-3 h-3 fill-amber-400 text-amber-400" />
+                        <span>{item.cost}</span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL: ADD / EDIT REWARD */}
+        {activeModal === 'addReward' && (
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="w-full max-w-sm bg-white rounded-3xl border border-neutral-200 p-5 space-y-3 shadow-2xl">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-neutral-900">
+                  {editingReward ? 'Editar Recompensa' : 'Crear Nueva Recompensa'}
+                </h3>
+                <button onClick={() => setActiveModal('shop')} className="text-neutral-400 hover:text-black">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-extrabold text-neutral-400 uppercase block mb-1">Nombre del Premio</label>
+                <input
+                  type="text"
+                  placeholder="Ej: Noche de Pizza, Salida al Cine..."
+                  value={rewardForm.name}
+                  onChange={(e) => setRewardForm({ ...rewardForm, name: e.target.value })}
+                  className="w-full bg-neutral-50 border border-neutral-200 rounded-2xl px-3 py-2 text-xs text-neutral-900"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-extrabold text-neutral-400 uppercase block mb-1">Icono / Emoji</label>
+                <input
+                  type="text"
+                  value={rewardForm.icon}
+                  onChange={(e) => setRewardForm({ ...rewardForm, icon: e.target.value })}
+                  className="w-full bg-neutral-50 border border-neutral-200 rounded-2xl px-3 py-2 text-xs text-neutral-900"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-extrabold text-neutral-400 uppercase block mb-1">Costo en Monedas</label>
+                <input
+                  type="number"
+                  placeholder="100"
+                  value={rewardForm.cost}
+                  onChange={(e) => setRewardForm({ ...rewardForm, cost: e.target.value })}
+                  className="w-full bg-neutral-50 border border-neutral-200 rounded-2xl px-3 py-2 text-xs text-neutral-900"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-extrabold text-neutral-400 uppercase block mb-1">Descripción</label>
+                <input
+                  type="text"
+                  placeholder="Ej: Disfruta de un regalo personal por tu esfuerzo"
+                  value={rewardForm.desc}
+                  onChange={(e) => setRewardForm({ ...rewardForm, desc: e.target.value })}
+                  className="w-full bg-neutral-50 border border-neutral-200 rounded-2xl px-3 py-2 text-xs text-neutral-900"
+                />
+              </div>
+
+              <button
+                onClick={handleSaveReward}
+                className="w-full py-3 bg-neutral-900 hover:bg-black text-white font-bold rounded-2xl text-xs mt-2"
+              >
+                Guardar Recompensa
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL: ADD / EDIT HABIT */}
+        {activeModal === 'addHabit' && (
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="w-full max-w-sm bg-white rounded-3xl border border-neutral-200 p-5 space-y-3 shadow-2xl">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-neutral-900">
+                  {editingHabit ? 'Editar Hábito' : 'Crear Nuevo Hábito'}
+                </h3>
+                <button onClick={() => setActiveModal(null)} className="text-neutral-400">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-extrabold text-neutral-400 uppercase block mb-1">Nombre</label>
+                <input
+                  type="text"
+                  placeholder="Ej: Caminar 30 minutos..."
+                  value={habitForm.name}
+                  onChange={(e) => setHabitForm({ ...habitForm, name: e.target.value })}
+                  className="w-full bg-neutral-50 border border-neutral-200 rounded-2xl px-3 py-2 text-xs text-neutral-900"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-extrabold text-neutral-400 uppercase block mb-1">Emoji / Icono</label>
+                <input
+                  type="text"
+                  value={habitForm.icon}
+                  onChange={(e) => setHabitForm({ ...habitForm, icon: e.target.value })}
+                  className="w-full bg-neutral-50 border border-neutral-200 rounded-2xl px-3 py-2 text-xs text-neutral-900"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-extrabold text-neutral-400 uppercase block mb-1">Categoría</label>
+                <select
+                  value={habitForm.category}
+                  onChange={(e) => setHabitForm({ ...habitForm, category: e.target.value })}
+                  className="w-full bg-neutral-50 border border-neutral-200 rounded-2xl px-3 py-2 text-xs text-neutral-900"
+                >
+                  <option value="Fitness">Fitness / Salud</option>
+                  <option value="Conocimiento">Conocimiento / Mente</option>
+                  <option value="Creatividad">Creatividad / Arte</option>
+                  <option value="Finanzas">Finanzas / Ahorro</option>
+                  <option value="Aventura">Aventura / Salidas</option>
+                  <option value="Social">Social / Amigos</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-extrabold text-neutral-400 uppercase block mb-1">Dificultad</label>
+                <select
+                  value={habitForm.difficulty}
+                  onChange={(e) => setHabitForm({ ...habitForm, difficulty: e.target.value })}
+                  className="w-full bg-neutral-50 border border-neutral-200 rounded-2xl px-3 py-2 text-xs text-neutral-900"
+                >
+                  <option value="Easy">Fácil (+10 XP / +5 Monedas)</option>
+                  <option value="Medium">Media (+25 XP / +12 Monedas)</option>
+                  <option value="Hard">Difícil (+40 XP / +20 Monedas)</option>
+                  <option value="Epic">Épica (+60 XP / +30 Monedas)</option>
+                </select>
+              </div>
+
+              <div className="flex items-center justify-between pt-1">
+                <label className="text-xs font-bold text-neutral-700">Vincular al Jefe Mensual</label>
+                <input 
+                  type="checkbox"
+                  checked={habitForm.linkedToBoss}
+                  onChange={(e) => setHabitForm({ ...habitForm, linkedToBoss: e.target.checked })}
+                  className="w-4 h-4 accent-neutral-900"
+                />
+              </div>
+
+              <button
+                onClick={handleSaveHabit}
+                className="w-full py-3 bg-neutral-900 hover:bg-black text-white font-bold rounded-2xl text-xs mt-2"
+              >
+                Guardar Hábito
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL: ADD / EDIT ENEMY */}
+        {activeModal === 'addEnemy' && (
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="w-full max-w-sm bg-white rounded-3xl border border-neutral-200 p-5 space-y-3 shadow-2xl">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-neutral-900">
+                  {editingEnemy ? 'Editar Mal Hábito' : 'Nuevo Mal Hábito a Evitar'}
+                </h3>
+                <button onClick={() => setActiveModal(null)} className="text-neutral-400">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-extrabold text-neutral-400 uppercase block mb-1">Nombre del Mal Hábito</label>
+                <input
+                  type="text"
+                  placeholder="Ej: Comer comida chatarra..."
+                  value={enemyForm.name}
+                  onChange={(e) => setEnemyForm({ ...enemyForm, name: e.target.value })}
+                  className="w-full bg-neutral-50 border border-neutral-200 rounded-2xl px-3 py-2 text-xs text-neutral-900"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-extrabold text-neutral-400 uppercase block mb-1">Regla de Evasión</label>
+                <input
+                  type="text"
+                  placeholder="Ej: Elegir fruta o agua..."
+                  value={enemyForm.avoidanceCue}
+                  onChange={(e) => setEnemyForm({ ...enemyForm, avoidanceCue: e.target.value })}
+                  className="w-full bg-neutral-50 border border-neutral-200 rounded-2xl px-3 py-2 text-xs text-neutral-900"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-extrabold text-neutral-400 uppercase block mb-1">Daño a la Salud (HP)</label>
+                <input
+                  type="number"
+                  value={enemyForm.damage}
+                  onChange={(e) => setEnemyForm({ ...enemyForm, damage: e.target.value })}
+                  className="w-full bg-neutral-50 border border-neutral-200 rounded-2xl px-3 py-2 text-xs text-neutral-900"
+                />
+              </div>
+
+              <button
+                onClick={handleSaveEnemy}
+                className="w-full py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-2xl text-xs mt-2"
+              >
+                Guardar Castigo
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL: EDIT BOSS */}
+        {activeModal === 'editBoss' && (
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="w-full max-w-sm bg-white rounded-3xl border border-neutral-200 p-5 space-y-3 shadow-2xl">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-neutral-900">Editar Jefe Mensual</h3>
+                <button onClick={() => setActiveModal(null)} className="text-neutral-400">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-extrabold text-neutral-400 uppercase block mb-1">Nombre del Jefe</label>
+                <input
+                  type="text"
+                  value={bossForm.name}
+                  onChange={(e) => setBossForm({ ...bossForm, name: e.target.value })}
+                  className="w-full bg-neutral-50 border border-neutral-200 rounded-2xl px-3 py-2 text-xs text-neutral-900 uppercase"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-extrabold text-neutral-400 uppercase block mb-1">Descripción</label>
+                <input
+                  type="text"
+                  value={bossForm.description}
+                  onChange={(e) => setBossForm({ ...bossForm, description: e.target.value })}
+                  className="w-full bg-neutral-50 border border-neutral-200 rounded-2xl px-3 py-2 text-xs text-neutral-900"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[10px] font-extrabold text-neutral-400 uppercase block mb-1">Meta Cuantitativa</label>
+                  <input
+                    type="number"
+                    value={bossForm.targetMetric}
+                    onChange={(e) => setBossForm({ ...bossForm, targetMetric: e.target.value })}
+                    className="w-full bg-neutral-50 border border-neutral-200 rounded-2xl px-3 py-2 text-xs text-neutral-900"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-extrabold text-neutral-400 uppercase block mb-1">Unidad</label>
+                  <input
+                    type="text"
+                    value={bossForm.unit}
+                    onChange={(e) => setBossForm({ ...bossForm, unit: e.target.value })}
+                    className="w-full bg-neutral-50 border border-neutral-200 rounded-2xl px-3 py-2 text-xs text-neutral-900"
+                  />
+                </div>
+              </div>
+
+              <button
+                onClick={handleSaveBoss}
+                className="w-full py-3 bg-neutral-900 hover:bg-black text-white font-bold rounded-2xl text-xs mt-2"
+              >
+                Guardar Jefe
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL: EDIT PROFILE */}
+        {activeModal === 'editProfile' && (
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="w-full max-w-sm bg-white rounded-3xl border border-neutral-200 p-5 space-y-3 shadow-2xl">
+              <h3 className="text-sm font-bold text-neutral-900">Editar Perfil de Héroe</h3>
+              <div>
+                <label className="text-[10px] font-extrabold text-neutral-400 uppercase block mb-1">Nombre</label>
+                <input
+                  type="text"
+                  value={profileNameInput}
+                  onChange={(e) => setProfileNameInput(e.target.value)}
+                  className="w-full bg-neutral-50 border border-neutral-200 rounded-2xl px-3 py-2 text-xs text-neutral-900"
+                />
+              </div>
+
+              <div className="pt-2">
+                <button
+                  onClick={() => avatarInputRef.current && avatarInputRef.current.click()}
+                  className="w-full py-2.5 bg-neutral-100 hover:bg-neutral-200 text-neutral-900 font-bold rounded-2xl text-xs flex items-center justify-center gap-2 border border-neutral-200"
+                >
+                  <Camera className="w-4 h-4 text-[#f94a29]" />
+                  Subir Foto de Perfil
+                </button>
+              </div>
+
+              <button
+                onClick={() => {
+                  updateAppDataAndSync(prev => ({ ...prev, user: { ...prev.user, name: profileNameInput } }));
+                  setActiveModal(null);
+                }}
+                className="w-full py-3 bg-neutral-900 text-white font-bold rounded-2xl text-xs mt-1"
+              >
+                Guardar Cambios
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* REWARD POPUP NOTIFICATION */}
+        {rewardModal && (
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-md z-50 flex items-center justify-center p-5">
+            <div className="w-full max-w-xs bg-white rounded-3xl border border-neutral-200 p-6 text-center space-y-3 shadow-2xl">
+              <div className="text-3xl">{rewardModal.error ? '⚠️' : '🎉'}</div>
+              <h3 className={`text-base font-black ${rewardModal.error ? 'text-red-600' : 'text-neutral-900'}`}>
+                {rewardModal.title}
+              </h3>
+              <p className="text-xs text-neutral-600">{rewardModal.subtitle}</p>
+
+              {rewardModal.xp && (
+                <div className="text-xs font-bold text-[#f94a29]">
+                  +{rewardModal.xp} XP • +{rewardModal.coins} Monedas
+                </div>
+              )}
+
+              <button
+                onClick={() => setRewardModal(null)}
+                className="w-full py-2.5 bg-neutral-900 text-white font-bold rounded-2xl text-xs shadow-md"
+              >
+                Continuar
+              </button>
+            </div>
+          </div>
+        )}
+
+      </div>
+    </div>
+  );
+}
